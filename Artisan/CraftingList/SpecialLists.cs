@@ -321,12 +321,12 @@ namespace Artisan.CraftingLists
                 foreach (var stat in Stats)
                 {
                     var val = stat.Value;
-                    if (ImGui.Checkbox($"###{Svc.Data.GetExcelSheet<BaseParam>()?.First(x => x.RowId == stat.Key).Name.ExtractText()}", ref val))
+                    if (ImGui.Checkbox($"###{Svc.Data.GetExcelSheet<BaseParam>()?.First(x => x.RowId == stat.Key).Name.GetText()}", ref val))
                     {
                         Stats[stat.Key] = val;
                     }
                     ImGui.SameLine();
-                    ImGui.TextWrapped($"{Svc.Data.GetExcelSheet<BaseParam>()?.First(x => x.RowId == stat.Key).Name.ExtractText()}");
+                    ImGui.TextWrapped($"{Svc.Data.GetExcelSheet<BaseParam>()?.First(x => x.RowId == stat.Key).Name.GetText()}");
                     ImGui.NextColumn();
                 }
 
@@ -335,7 +335,7 @@ namespace Artisan.CraftingLists
             ImGui.Columns(1);
 
             ImGui.Spacing();
-            if (ImGui.Button("Build List", new System.Numerics.Vector2(ImGui.GetContentRegionAvail().X, 0)))
+            if (ImGui.Button("建立清單 (只含最終成品)", new System.Numerics.Vector2(ImGui.GetContentRegionAvail().X, 0)))
             {
                 if (listName.IsNullOrWhitespace())
                 {
@@ -346,7 +346,7 @@ namespace Artisan.CraftingLists
                 Notify.Info("Your list is being created. Please wait.");
                 Task.Run(() => CreateList(false)).ContinueWith(result => NotifySuccess(result));
             }
-            if (ImGui.Button("Build List (with subcrafts)", new System.Numerics.Vector2(ImGui.GetContentRegionAvail().X, 0)))
+            if (ImGui.Button("建立清單 (包含半成品)", new System.Numerics.Vector2(ImGui.GetContentRegionAvail().X, 0)))
             {
                 if (listName.IsNullOrWhitespace())
                 {

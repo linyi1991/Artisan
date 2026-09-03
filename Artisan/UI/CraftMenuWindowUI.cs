@@ -28,7 +28,7 @@ namespace Artisan.UI
             TitleBarButtons.Add(new()
             {
                 Icon = FontAwesomeIcon.Cog,
-                ShowTooltip = () => ImGui.SetTooltip("Open Config"),
+                ShowTooltip = () => ImGui.SetTooltip("開啟設定"),
                 Click = (x) => P.PluginUi.IsOpen = true,
             });
         }
@@ -69,7 +69,7 @@ namespace Artisan.UI
             
             var autoMode = P.Config.AutoMode;
 
-            if (ImGui.Checkbox("Automatic Action Execution Mode", ref autoMode))
+            if (ImGui.Checkbox("自動執行推薦技能", ref autoMode))
             {
                 P.Config.AutoMode = autoMode;
                 P.Config.Save();
@@ -82,7 +82,7 @@ namespace Artisan.UI
                 ImGui.BeginDisabled();
             }
 
-            if (ImGui.Checkbox("Endurance Mode Toggle", ref enable))
+            if (ImGui.Checkbox("連續製作模式", ref enable))
             {
                 Endurance.ToggleEndurance(enable);
             }
@@ -95,7 +95,7 @@ namespace Artisan.UI
                 {
                     var recipe = LuminaSheets.RecipeSheet!.First(x => x.Key == Endurance.RecipeID).Value;
                     ImGui.BeginTooltip();
-                    ImGui.Text($"You cannot start Endurance as you do not possess ingredients to craft this recipe.\r\nMissing: {string.Join(", ", PreCrafting.MissingIngredients(recipe))}");
+                    ImGui.Text($"無法開始連續製作，因為材料不足。\r\n缺少材料：{string.Join("、", PreCrafting.MissingIngredients(recipe))}");
                     ImGui.EndTooltip();
                 }
             }

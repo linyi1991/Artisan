@@ -144,7 +144,7 @@ namespace Artisan.UI.Tables
 
             public override float Width => _nameColumnWidth * ImGuiHelpers.GlobalScale;
 
-            public override void DrawColumn(Ingredient item, int _)
+            public override void DrawColumn(Ingredient item, int rowIndex)
             {
                 if (ShowColour)
                 {
@@ -386,7 +386,7 @@ namespace Artisan.UI.Tables
                 return "ERROR - No Listings (Possible Universalis Connection Issue)";
             }
 
-            public override void DrawColumn(Ingredient item, int _)
+            public override void DrawColumn(Ingredient item, int rowIndex)
             {
                 if (item.MarketboardData != null)
                 {
@@ -403,7 +403,7 @@ namespace Artisan.UI.Tables
 
                         if (ImGui.IsItemClicked())
                         {
-                            Chat.Instance.SendMessage($"/li {server} mb");
+                            Chat.SendMessage($"/li {server} mb");
                         }
                     }
                 }
@@ -419,10 +419,7 @@ namespace Artisan.UI.Tables
                     if (ImGui.Button($"Fetch Prices"))
                     {
                         P.UniversalsisClient.PlayerWorld = Svc.ClientState.LocalPlayer?.CurrentWorld.RowId;
-                        if (P.Config.LimitUnversalisToDC)
-                            Task.Run(() => P.UniversalsisClient.GetDCData(item.Data.RowId, ref item.MarketboardData));
-                        else
-                            Task.Run(() => P.UniversalsisClient.GetRegionData(item.Data.RowId, ref item.MarketboardData));
+                        _ = item.RefreshMarketPriceAsync(forceRefresh: true);
                     }
                 }
             }
@@ -712,9 +709,9 @@ namespace Artisan.UI.Tables
 
             if (Marketboard)
             {
-                if (ImGui.Selectable("Market Board Lookup"))
+                if (ImGui.Selectable("查詢市場布告板"))
                 {
-                    Chat.Instance.SendMessage($"/pmb {item.Data.Name.ToDalamudString()}");
+                    Chat.SendMessage($"/pmb {item.Data.Name.ToDalamudString()}");
                 }
             }
         }
@@ -736,7 +733,7 @@ namespace Artisan.UI.Tables
                     return;
                 }
 
-                if (!ImGui.Selectable("Fetch From Retainer"))
+                if (!ImGui.Selectable("從僱員取出"))
                     return;
 
                 var howManyToGet = item.Required - item.Inventory;
@@ -761,7 +758,7 @@ namespace Artisan.UI.Tables
 
                 if (item.Sources.Contains(1) && isOnList.Value)
                 {
-                    if (ImGui.Selectable($"Show ingredients used for this"))
+                    if (ImGui.Selectable($"顯示用於製作此物品的材料"))
                     {
                         FilteredItems.Clear();
                         var idx = 0;
@@ -781,7 +778,7 @@ namespace Artisan.UI.Tables
 
             if (CraftFiltered)
             {
-                if (!ImGui.Selectable($"Clear Filters"))
+                if (!ImGui.Selectable($"清除篩選條件"))
                     return;
 
                 CraftFiltered = false;
@@ -797,12 +794,12 @@ namespace Artisan.UI.Tables
 
             if (MonsterLookup)
             {
-                if (!ImGui.Selectable("Monster Loot Lookup"))
+                if (!ImGui.Selectable("查詢怪物掉落來源"))
                     return;
 
                 try
                 {
-                    Chat.Instance.SendMessage($"/mloot {item.Data.Name.ToString()}");
+                    Chat.SendMessage($"/mloot {item.Data.Name.ToString()}");
                 }
                 catch (Exception e)
                 {
@@ -824,7 +821,7 @@ namespace Artisan.UI.Tables
             {
                 if (ItemVendorLocation.ItemHasVendor(item.Data.RowId))
                 {
-                    if (!ImGui.Selectable("Item Vendor Lookup"))
+                    if (!ImGui.Selectable("查詢商店販售來源"))
                         return;
 
                     try
@@ -848,7 +845,7 @@ namespace Artisan.UI.Tables
             if (item.Data.RowId == 0)
                 return;
 
-            if (!ImGui.Selectable("Search for Item"))
+            if (!ImGui.Selectable("搜尋物品"))
                 return;
 
             try
@@ -869,15 +866,15 @@ namespace Artisan.UI.Tables
 
             if (GatherBuddy)
             {
-                if (!ImGui.Selectable("Gather Item"))
+                if (!ImGui.Selectable("前往採集物品"))
                     return;
 
                 try
                 {
                     if (LuminaSheets.GatheringItemSheet!.Any(x => x.Value.Item.RowId == item.Data.RowId))
-                        Chat.Instance.SendMessage($"/gather {item.Data.Name.ToString()}");
+                        Chat.SendMessage($"/gather {item.Data.Name.ToString()}");
                     else
-                        Chat.Instance.SendMessage($"/gatherfish {item.Data.Name.ToString()}");
+                        Chat.SendMessage($"/gatherfish {item.Data.Name.ToString()}");
                 }
                 catch (Exception e)
                 {

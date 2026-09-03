@@ -43,19 +43,19 @@ namespace Artisan.UI
 
         internal static void Draw()
         {
-            ImGui.TextWrapped("This tab will allow you to add macros that Artisan can use instead of its own decisions. Once you create a new macro, click on it from the list below to open up the macro editor window for your macro.");
+            ImGui.TextWrapped("這裡可以新增由 Artisan 執行的製作巨集。建立巨集後，點擊下方清單中的名稱即可開啟編輯器。");
             ImGui.Separator();
 
             if (Svc.ClientState.IsLoggedIn && Crafting.CurState is not Crafting.State.IdleNormal and not Crafting.State.IdleBetween)
             {
-                ImGui.Text($"Crafting in progress. Macro settings will be unavailable until you stop crafting.");
+                ImGui.Text($"正在製作中；停止製作後才能修改巨集設定。");
                 return;
             }
             ImGui.Spacing();
-            if (ImGui.Button("Import Macro From Clipboard"))
+            if (ImGui.Button("從剪貼簿匯入遊戲巨集"))
                 OpenMacroNamePopup(MacroNameUse.FromClipboard);
 
-            if (ImGui.Button("Import Macro From Clipboard (Artisan Export)"))
+            if (ImGui.Button("從剪貼簿匯入 Artisan 匯出資料"))
             {
                 try
                 {
@@ -73,7 +73,7 @@ namespace Artisan.UI
                 }
             }
 
-            if (ImGui.Button("New Macro"))
+            if (ImGui.Button("新增巨集"))
                 OpenMacroNamePopup(MacroNameUse.NewMacro);
 
             DrawMacroNamePopup(MacroNameUse.FromClipboard);
@@ -82,7 +82,7 @@ namespace Artisan.UI
             if (P.Config.MacroSolverConfig.Macros.Count > 0)
             {
                 if (P.Config.MacroSolverConfig.Macros.Count > 1)
-                    ImGui.Checkbox("Reorder Mode (Click and Drag to Reorder)", ref reorderMode);
+                    ImGui.Checkbox("重新排序模式 (拖曳調整順序)", ref reorderMode);
                 else
                     reorderMode = false;
 

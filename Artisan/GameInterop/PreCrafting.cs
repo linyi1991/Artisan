@@ -175,7 +175,7 @@ public unsafe static class PreCrafting
             {
                 List<string> missingIngredients = MissingIngredients(recipe);
 
-                DuoLog.Error($"Not all ingredients for {recipe.ItemResult.Value.Name.ToDalamudString()} found.\r\nMissing: {string.Join(", ", missingIngredients)}");
+                DuoLog.Error($"製作 {recipe.ItemResult.Value.Name.ToDalamudString()} 的材料不足。\r\n缺少材料：{string.Join("、", missingIngredients)}");
                 return;
             }
 
@@ -494,7 +494,7 @@ public unsafe static class PreCrafting
 
             if (addon == null)
             {
-                AgentRecipeNote.Instance()->OpenRecipeByRecipeId(recipe.RowId);
+                Svc.Log.Debug($"Waiting for cosmic recipe notebook before selecting recipe #{recipe.RowId}.");
                 return TaskResult.Retry;
             }
 

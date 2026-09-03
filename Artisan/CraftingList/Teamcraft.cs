@@ -27,18 +27,18 @@ namespace Artisan.CraftingLists
 
         internal static void DrawTeamCraftListButtons()
         {
-            string labelText = "Teamcraft Lists";
+            string labelText = "Teamcraft 清單";
             var labelLength = ImGui.CalcTextSize(labelText);
             ImGui.SetCursorPosX((ImGui.GetContentRegionMax().X - labelLength.X) * 0.5f);
             ImGui.TextColored(ImGuiColors.ParsedGreen, labelText);
-            if (IconButtons.IconTextButton(Dalamud.Interface.FontAwesomeIcon.Download, "Import", new Vector2(ImGui.GetContentRegionAvail().X, 30)))
+            if (IconButtons.IconTextButton(Dalamud.Interface.FontAwesomeIcon.Download, "匯入", new Vector2(ImGui.GetContentRegionAvail().X, 30)))
             {
                 openImportWindow = true;
             }
             OpenTeamcraftImportWindow();
             if (CraftingListUI.selectedList.ID != 0)
             {
-                if (IconButtons.IconTextButton(Dalamud.Interface.FontAwesomeIcon.Upload, "Export", new Vector2(ImGui.GetContentRegionAvail().X, 30), true))
+                if (IconButtons.IconTextButton(Dalamud.Interface.FontAwesomeIcon.Upload, "匯出", new Vector2(ImGui.GetContentRegionAvail().X, 30), true))
                 {
                     ExportSelectedListToTC();
                 }

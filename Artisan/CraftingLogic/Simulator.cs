@@ -110,7 +110,7 @@ public static class Simulator
     {
         hintColor = ImGuiColors.DalamudWhite;
         var solver = CraftingProcessor.GetSolverForRecipe(config, craft).CreateSolver(craft);
-        if (solver == null) return "No valid solver found.";
+        if (solver == null) return "找不到可用的求解器。";
         var startingQuality = GetStartingQuality(recipe, assumeMaxStartingQuality, craft.StatLevel);
         var time = SolverUtils.EstimateCraftTime(solver, craft, startingQuality);
         var result = SolverUtils.SimulateSolverExecution(solver, craft, startingQuality);
@@ -119,17 +119,17 @@ public static class Simulator
 
         string solverHint = status switch
         {
-            CraftStatus.InProgress => "Craft did not finish (solver failed to return any more steps before finishing).",
-            CraftStatus.FailedDurability => $"Craft failed due to durability shortage. (P: {(float)result.Progress / craft.CraftProgress * 100:f0}%, Q: {(float)result.Quality / craft.CraftQualityMax * 100:f0}%)",
-            CraftStatus.FailedMinQuality => $"Craft completed but didn't meet minimum quality(P: {(float)result.Progress / craft.CraftProgress * 100:f0}%, Q: {(float)result.Quality / craft.CraftQualityMax * 100:f0}%).",
-            CraftStatus.SucceededQ1 => $"Craft completed and managed to hit 1st quality threshold in {time.TotalSeconds:f0}s.",
-            CraftStatus.SucceededQ2 => $"Craft completed and managed to hit 2nd quality threshold in {time.TotalSeconds:f0}s.",
-            CraftStatus.SucceededQ3 => $"Craft completed and managed to hit 3rd quality threshold in {time.TotalSeconds:f0}s!",
-            CraftStatus.SucceededMaxQuality => $"Craft completed with full quality in {time.TotalSeconds:f0}s!",
-            CraftStatus.SucceededSomeQuality => $"Craft completed but didn't max out quality ({hq}%) in {time.TotalSeconds:f0}s",
-            CraftStatus.SucceededNoQualityReq => $"Craft completed, no quality required in {time.TotalSeconds:f0}s!",
-            CraftStatus.Count => "You shouldn't be able to see this. Report it please.",
-            _ => "You shouldn't be able to see this. Report it please.",
+            CraftStatus.InProgress => "模擬未完成：求解器在完成前已無法提供下一步。",
+            CraftStatus.FailedDurability => $"模擬失敗：耐久度不足。 (進度 {(float)result.Progress / craft.CraftProgress * 100:f0}%／品質 {(float)result.Quality / craft.CraftQualityMax * 100:f0}%)",
+            CraftStatus.FailedMinQuality => $"雖能完成製作，但未達到最低品質。 (進度 {(float)result.Progress / craft.CraftProgress * 100:f0}%／品質 {(float)result.Quality / craft.CraftQualityMax * 100:f0}%)",
+            CraftStatus.SucceededQ1 => $"模擬成功：{time.TotalSeconds:f0} 秒達到收藏品第一档。",
+            CraftStatus.SucceededQ2 => $"模擬成功：{time.TotalSeconds:f0} 秒達到收藏品第二档。",
+            CraftStatus.SucceededQ3 => $"模擬成功：{time.TotalSeconds:f0} 秒達到收藏品最高档！",
+            CraftStatus.SucceededMaxQuality => $"安全：{time.TotalSeconds:f0} 秒完成，品質 100%，保證 HQ！",
+            CraftStatus.SucceededSomeQuality => $"警告：可以完成，但預計 HQ 機率只有 {hq}% (约 {time.TotalSeconds:f0} 秒)",
+            CraftStatus.SucceededNoQualityReq => $"模擬成功：{time.TotalSeconds:f0} 秒完成，此配方不要求品質。",
+            CraftStatus.Count => "模擬狀態異常，請回報此問題。",
+            _ => "模擬狀態異常，請回報此問題。",
         };
 
 
@@ -214,7 +214,7 @@ public static class Simulator
         next.TrainedPerfectionActive = action == Skills.TrainedPerfection || (step.TrainedPerfectionActive && !HasDurabilityCost(action));
         next.TrainedPerfectionAvailable = step.TrainedPerfectionAvailable && action != Skills.TrainedPerfection;
         next.MaterialMiracleCharges = action == Skills.MaterialMiracle ? step.MaterialMiracleCharges - 1 : step.MaterialMiracleCharges;
-        next.MaterialMiracleActive = step.MaterialMiracleActive; //This is a timed buff, can't really use this in the simulator, just copy the real result
+        next.MaterialMiracleActive = action == Skills.MaterialMiracle || step.MaterialMiracleActive; // Timed buff; real state can expire later and will be resynced from game status.
         next.ObserveCounter = action == Skills.Observe ? step.ObserveCounter + 1 : 0;
 
         if (step.FinalAppraisalLeft > 0 && next.Progress >= craft.CraftProgress)

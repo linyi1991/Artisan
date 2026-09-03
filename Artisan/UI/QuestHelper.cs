@@ -49,7 +49,7 @@ namespace Artisan.UI
             bool hasIngredientsAny = QuestList.HasIngredientsForAny();
             if (hasIngredientsAny)
             {
-                ImGui.Text($"Quest Helper (click to open recipe)");
+                ImGui.Text($"任務助手 (點擊開啟配方)");
                 foreach (var quest in QuestList.Quests)
                 {
                     if (QuestList.IsOnQuest((ushort)quest.Key))
@@ -75,7 +75,7 @@ namespace Artisan.UI
             bool isOnSayQuest = QuestList.IsOnSayQuest();
             if (isOnSayQuest)
             {
-                ImGui.Text($"Quest Helper (click to say)");
+                ImGui.Text($"任務助手 (點擊發言)");
                 foreach (var quest in QuestManager.Instance()->DailyQuests)
                 {
                     string message = QuestList.GetSayQuestString(quest.QuestId);
@@ -91,7 +91,7 @@ namespace Artisan.UI
             bool isOnEmoteQuest = QuestList.IsOnEmoteQuest();
             if (isOnEmoteQuest)
             {
-                ImGui.Text("Quest Helper (click to target and emote)");
+                ImGui.Text("任務助手 (點擊選取目標並使用表情動作)");
                 foreach (var quest in QuestManager.Instance()->DailyQuests)
                 {
                     if (quest.IsCompleted) continue;

@@ -101,12 +101,29 @@ namespace Artisan.RawInformation
             if (P.Config.UseUniversalis && !P.Config.UniversalisOnDemand)
             {
                 if (P.Config.LimitUnversalisToDC)
-                    Task.Run(() => P.UniversalsisClient.GetDCData(ItemId, ref MarketboardData));
+                    _ = RefreshDCPriceAsync();
                 else
-                    Task.Run(() => P.UniversalsisClient.GetRegionData(ItemId, ref MarketboardData));
+                    _ = RefreshRegionPriceAsync();
             }
             IngredientHelper = ingredientHelpers;
         }
+
+        private async Task RefreshDCPriceAsync(bool forceRefresh = false)
+        {
+            var data = await P.UniversalsisClient.GetDCDataAsync(Data.RowId, forceRefresh).ConfigureAwait(false);
+            if (data != null)
+                MarketboardData = data;
+        }
+
+        private async Task RefreshRegionPriceAsync(bool forceRefresh = false)
+        {
+            var data = await P.UniversalsisClient.GetRegionDataAsync(Data.RowId, forceRefresh).ConfigureAwait(false);
+            if (data != null)
+                MarketboardData = data;
+        }
+
+        public Task RefreshMarketPriceAsync(bool forceRefresh = false) =>
+            P.Config.LimitUnversalisToDC ? RefreshDCPriceAsync(forceRefresh) : RefreshRegionPriceAsync(forceRefresh);
 
         public virtual event EventHandler<bool>? OnRemainingChange;
 

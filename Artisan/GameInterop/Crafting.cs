@@ -264,7 +264,10 @@ public static unsafe class Crafting
 
         if (CurCraft != null)
         {
-            CraftFinished?.Invoke(CurRecipe!.Value, CurCraft, CurStep!, true);
+            if (CurRecipe != null && CurStep != null)
+                CraftFinished?.Invoke(CurRecipe.Value, CurCraft, CurStep, true);
+            else
+                Svc.Log.Warning("Crafting exited while recipe or step state was missing; resetting state without firing CraftFinished.");
             _predictedNextStep = null;
             _predictionDeadline = default;
             CurRecipe = null;
@@ -401,6 +404,15 @@ public static unsafe class Crafting
         {
             // action was executed, but we might not have correct statuses yet
             var step = BuildStepState(synthWindow, _predictedNextStep, CurCraft);
+            if (IsMaterialMiracleExpiryOnly(_predictedNextStep, step))
+            {
+                _predictedNextStep = _predictedNextStep with
+                {
+                    MaterialMiracleActive = false,
+                    MaterialMiracleCharges = step.MaterialMiracleCharges,
+                };
+            }
+
             if (step != _predictedNextStep)
             {
                 if (DateTime.Now <= _predictionDeadline)
@@ -522,6 +534,7 @@ public static unsafe class Crafting
     private static int GetStepDurability(AddonSynthesis* synthWindow) => synthWindow->AtkUnitBase.AtkValues[7].Int;
     private static Condition GetStepCondition(AddonSynthesis* synthWindow) => (Condition)synthWindow->AtkUnitBase.AtkValues[12].Int;
     public static int DelineationCount() => InventoryManager.Instance()->GetInventoryItemCount(28724);
+    public static uint MaterialMiracleChargeCount() => MaterialMiracleCharges();
 
     private unsafe static uint MaterialMiracleCharges()
     {
@@ -585,11 +598,33 @@ public static unsafe class Crafting
         return ret;
     }
 
+    private static bool IsMaterialMiracleExpiryOnly(StepState predicted, StepState actual)
+    {
+        if (!predicted.MaterialMiracleActive || actual.MaterialMiracleActive)
+            return false;
+
+        var normalized = predicted with
+        {
+            MaterialMiracleActive = false,
+            MaterialMiracleCharges = actual.MaterialMiracleCharges,
+        };
+
+        return normalized == actual;
+    }
+
     private static Dalamud.Game.ClientState.Statuses.Status? GetStatus(uint statusID) => Svc.ClientState.LocalPlayer?.StatusList.FirstOrDefault(s => s.StatusId == statusID);
 
     private static void CraftingEventHandlerUpdateDetour(CraftingEventHandler* self, nint a2, nint a3, CraftingEventHandler.OperationId* payload)
     {
         Svc.Log.Verbose($"CEH hook: {*payload}");
+        if (CurState == State.InvalidState &&
+            *payload is CraftingEventHandler.OperationId.AdvanceCraftAction or CraftingEventHandler.OperationId.AdvanceNormalAction)
+        {
+            _craftingEventHandlerUpdateHook.Original(self, a2, a3, payload);
+            Svc.Log.Verbose("CEH hook exit");
+            return;
+        }
+
         switch (*payload)
         {
             case CraftingEventHandler.OperationId.StartPrepare:

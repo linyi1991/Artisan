@@ -72,6 +72,7 @@ namespace Artisan.RawInformation
                     }
                     catch (Exception ex)
                     {
+                        Svc.Log.Warning(ex, "Unable to determine Dalamud staging status from configuration.");
                         Svc.Chat.PrintError($"Unable to detrermine Dalamud staging due to file being config being unreadable.");
                         StagingChecked = true;
                         IsStaging = false;

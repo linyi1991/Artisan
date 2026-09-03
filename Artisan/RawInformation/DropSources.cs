@@ -15,7 +15,7 @@ namespace Artisan.RawInformation
 
         public DropSources(uint ItemId, List<uint> monsterId)
         {
-            ItemId = ItemId;
+            this.ItemId = ItemId;
             MonsterId = monsterId;
             CanObtainFromRetainer = Svc.Data.GetExcelSheet<RetainerTaskNormal>()!.Any(x => x.Item.RowId == ItemId);
             UsedInRecipes = LuminaSheets.RecipeSheet.Values.Any(y => y.Ingredients().Any(x => x.Item.RowId == ItemId));
@@ -54,6 +54,7 @@ namespace Artisan.RawInformation
             }
             catch (Exception ex)
             {
+                Svc.Log.Warning(ex, "Unable to refresh Teamcraft drop-source data.");
             }
 
             return output;

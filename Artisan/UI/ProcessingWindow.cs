@@ -55,7 +55,7 @@ namespace Artisan.UI
                 //    P.PluginUi.IsOpen = true;
                 //}
 
-                ImGui.Text($"Now Processing: {CraftingListUI.selectedList.Name}");
+                ImGui.Text($"正在處理：{CraftingListUI.selectedList.Name}");
                 ImGui.Separator();
                 ImGui.Spacing();
                 if (CraftingListUI.CurrentProcessedItem != 0)
@@ -71,7 +71,7 @@ namespace Artisan.UI
 
                 if (!CraftingListFunctions.Paused)
                 {
-                    if (ImGui.Button("Pause"))
+                    if (ImGui.Button("暫停"))
                     {
                         CraftingListFunctions.Paused = true;
                         P.TM.Abort();
@@ -81,7 +81,7 @@ namespace Artisan.UI
                 }
                 else
                 {
-                    if (ImGui.Button("Resume"))
+                    if (ImGui.Button("繼續"))
                     {
                         if (Crafting.CurState is Crafting.State.IdleNormal or Crafting.State.IdleBetween)
                         {
@@ -94,7 +94,7 @@ namespace Artisan.UI
                 }
 
                 ImGui.SameLine();
-                if (ImGui.Button("Cancel"))
+                if (ImGui.Button("取消"))
                 {
                     CraftingListUI.Processing = false;
                     CraftingListFunctions.Paused = false;

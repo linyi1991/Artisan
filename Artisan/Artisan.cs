@@ -28,6 +28,7 @@ public unsafe class Artisan : IDalamudPlugin
 {
     public string Name => "Artisan";
     private const string commandName = "/artisan";
+    private static readonly string[] commandAliases = ["/craft", "/製作"];
     internal static Artisan P = null!;
     internal PluginUI PluginUi;
     internal WindowSystem ws;
@@ -66,7 +67,7 @@ public unsafe class Artisan : IDalamudPlugin
 
         Svc.Commands.AddHandler(commandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Opens the Artisan menu.\n" +
+            HelpMessage = "開啟 Artisan 製作助手。也可使用 /craft 或 /製作。\n" +
             "/artisan lists → Open Lists.\n" +
             "/artisan lists <ID> → Opens specific list by ID.\n" +
             "/artisan lists <ID> start → Starts specific list by ID.\n" +
@@ -80,6 +81,14 @@ public unsafe class Artisan : IDalamudPlugin
             "/artisan automode → Toggles Automatic Action Execution Mode on/off.",
             ShowInHelp = true,
         });
+        foreach (var alias in commandAliases)
+        {
+            Svc.Commands.AddHandler(alias, new CommandInfo(OnCommand)
+            {
+                HelpMessage = "開啟 Artisan 製作助手。",
+                ShowInHelp = true,
+            });
+        }
 
         Svc.PluginInterface.UiBuilder.Draw += ws.Draw;
         Svc.PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
@@ -198,6 +207,7 @@ public unsafe class Artisan : IDalamudPlugin
         SimpleTweaks.DisableImprovedLogTweak();
         PreCrafting.Update();
         Endurance.Update();
+        cw.Tick();
 
         if (cw.RepeatTrial && !Endurance.Enable)
         {
@@ -220,6 +230,8 @@ public unsafe class Artisan : IDalamudPlugin
         PluginUi.Dispose();
 
         Svc.Commands.RemoveHandler(commandName);
+        foreach (var alias in commandAliases)
+            Svc.Commands.RemoveHandler(alias);
         Svc.PluginInterface.UiBuilder.OpenConfigUi -= DrawConfigUI;
         Svc.PluginInterface.UiBuilder.Draw -= ws.Draw;
         Svc.PluginInterface.UiBuilder.OpenMainUi -= DrawConfigUI;
@@ -460,4 +472,3 @@ public unsafe class Artisan : IDalamudPlugin
         }
     }
 }
-

@@ -60,7 +60,7 @@ internal static class CraftingListContextMenu
 
         var recipeId = LuminaSheets.RecipeSheet.Values.First(x => x.ItemResult.RowId == ItemId).RowId;
 
-        if (ImGui.Selectable($"Open Recipe Log"))
+        if (ImGui.Selectable($"開啟製作筆記"))
         {
             CraftingListFunctions.OpenRecipeByID(recipeId);
         }
@@ -87,7 +87,7 @@ internal static class CraftingListContextMenu
             var recipeId = LuminaSheets.RecipeSheet.Values.First(x => x.ItemResult.RowId == itemId).RowId;
 
             var menuItem = new MenuItem();
-            menuItem.Name = "Open Recipe Log";
+            menuItem.Name = "開啟製作筆記";
             menuItem.PrefixChar = 'A';
             menuItem.PrefixColor = 706;
             menuItem.OnClicked += clickedArgs => CraftingListFunctions.OpenRecipeByID(recipeId, true);
@@ -100,7 +100,7 @@ internal static class CraftingListContextMenu
 
             var subMenu = new MenuItem();
             subMenu.IsSubmenu = true;
-            subMenu.Name = "Artisan Crafting List";
+            subMenu.Name = "Artisan 製作清單";
             subMenu.PrefixChar = 'A';
             subMenu.PrefixColor = 706;
 
@@ -124,7 +124,7 @@ internal static class CraftingListContextMenu
                 }
 
                 var menuItem = new MenuItem();
-                menuItem.Name = "Withdraw from Retainer";
+                menuItem.Name = "從僱員取出";
                 menuItem.PrefixChar = 'A';
                 menuItem.PrefixColor = 706;
                 menuItem.OnClicked += clickedArgs => RetainerInfo.RestockFromRetainers(ItemId, amountToGet);
@@ -138,7 +138,7 @@ internal static class CraftingListContextMenu
 
             var subMenu = new MenuItem();
             subMenu.IsSubmenu = true;
-            subMenu.Name = "Artisan Crafting List";
+            subMenu.Name = "Artisan 製作清單";
             subMenu.PrefixChar = 'A';
             subMenu.PrefixColor = 706;
 
@@ -158,7 +158,7 @@ internal static class CraftingListContextMenu
             var recipeId = LuminaSheets.RecipeSheet.Values.First(x => x.ItemResult.RowId == ItemId).RowId;
 
             var menuItem = new MenuItem();
-            menuItem.Name = "Open Recipe Log";
+            menuItem.Name = "開啟製作筆記";
             menuItem.PrefixChar = 'A';
             menuItem.PrefixColor = 706;
             menuItem.OnClicked += clickedArgs => CraftingListFunctions.OpenRecipeByID(recipeId, true);
@@ -174,41 +174,71 @@ internal static class CraftingListContextMenu
         if (CraftingListUI.selectedList.ID == 0)
         {
             var menuItem = new MenuItem();
-            menuItem.Name = "Add to New Artisan Crafting List";
+            menuItem.Name = "加入新的 Artisan 製作清單";
             menuItem.PrefixChar = 'A';
             menuItem.PrefixColor = 706;
             menuItem.OnClicked += clickedArgs => AddToNewList(ItemId, craftTypeIndex);
 
             menuItems.Add(menuItem);
+            var forceRestockItem = new MenuItem();
+            forceRestockItem.Name = "強制加入新的 Artisan 製作清單並從僱員取料";
+            forceRestockItem.PrefixChar = 'A';
+            forceRestockItem.PrefixColor = 706;
+            forceRestockItem.OnClicked += clickedArgs => AddToNewListAndRestock(ItemId, craftTypeIndex);
+
+            menuItems.Add(forceRestockItem);
             if (ingredientsSubCraft)
             {
                 var menuItem2 = new MenuItem();
-                menuItem2.Name = "Add to New Artisan Crafting List (with Sub-crafts)";
+                menuItem2.Name = "加入新的 Artisan 製作清單 (包含半成品)";
                 menuItem2.PrefixChar = 'A';
                 menuItem2.PrefixColor = 706;
                 menuItem2.OnClicked += clickedArgs => AddToNewList(ItemId, craftTypeIndex, true);
 
                 menuItems.Add(menuItem2);
+
+                var forceRestockItem2 = new MenuItem();
+                forceRestockItem2.Name = "強制加入新的 Artisan 製作清單並從僱員取料 (包含半成品)";
+                forceRestockItem2.PrefixChar = 'A';
+                forceRestockItem2.PrefixColor = 706;
+                forceRestockItem2.OnClicked += clickedArgs => AddToNewListAndRestock(ItemId, craftTypeIndex, true);
+
+                menuItems.Add(forceRestockItem2);
             }
         }
         else
         {
             var menuItem = new MenuItem();
-            menuItem.Name = "Add to Current Artisan Crafting List";
+            menuItem.Name = "加入目前的 Artisan 製作清單";
             menuItem.PrefixChar = 'A';
             menuItem.PrefixColor = 706;
             menuItem.OnClicked += clickedArgs => AddToList(ItemId, craftTypeIndex);
 
             menuItems.Add(menuItem);
+            var forceRestockItem = new MenuItem();
+            forceRestockItem.Name = "強制加入目前的 Artisan 製作清單並從僱員取料";
+            forceRestockItem.PrefixChar = 'A';
+            forceRestockItem.PrefixColor = 706;
+            forceRestockItem.OnClicked += clickedArgs => AddToListAndRestock(ItemId, craftTypeIndex);
+
+            menuItems.Add(forceRestockItem);
             if (ingredientsSubCraft)
             {
                 var menuItem2 = new MenuItem();
-                menuItem2.Name = "Add to Current Artisan Crafting List (with Sub-crafts)";
+                menuItem2.Name = "加入目前的 Artisan 製作清單 (包含半成品)";
                 menuItem2.PrefixChar = 'A';
                 menuItem2.PrefixColor = 706;
                 menuItem2.OnClicked += clickedArgs => AddToList(ItemId, craftTypeIndex, true);
 
                 menuItems.Add(menuItem2);
+
+                var forceRestockItem2 = new MenuItem();
+                forceRestockItem2.Name = "強制加入目前的 Artisan 製作清單並從僱員取料 (包含半成品)";
+                forceRestockItem2.PrefixChar = 'A';
+                forceRestockItem2.PrefixColor = 706;
+                forceRestockItem2.OnClicked += clickedArgs => AddToListAndRestock(ItemId, craftTypeIndex, true);
+
+                menuItems.Add(forceRestockItem2);
             }
         }
         if (menuItems.Count > 0)
@@ -306,6 +336,18 @@ internal static class CraftingListContextMenu
         AddToList(ItemId, craftType, withPrecraft);
     }
 
+    private static void AddToNewListAndRestock(uint ItemId, uint craftType, bool withPrecraft = false)
+    {
+        AddToNewList(ItemId, craftType, withPrecraft);
+        RestockSelectedListFromRetainers();
+    }
+
+    private static void AddToListAndRestock(uint ItemId, uint craftType, bool withPrecraft = false)
+    {
+        AddToList(ItemId, craftType, withPrecraft);
+        RestockSelectedListFromRetainers();
+    }
+
     private static void AddToList(uint ItemId, uint craftType, bool withPrecraft = false)
     {
         CraftingListUI.listMaterialsNew.Clear();
@@ -330,7 +372,7 @@ internal static class CraftingListContextMenu
         CraftingListHelpers.TidyUpList(CraftingListUI.selectedList);
         foreach (var w in P.ws.Windows)
         {
-            if (w.WindowName == $"List Editor###{CraftingListUI.selectedList.ID}")
+            if (w.WindowName == $"製作清單編輯器###{CraftingListUI.selectedList.ID}")
             {
                 (w as ListEditor).RecipeSelector.Items = CraftingListUI.selectedList.Recipes.ToList();
                 (w as ListEditor).RefreshTable(null, true);
@@ -340,6 +382,32 @@ internal static class CraftingListContextMenu
         P.Config.Save();
     }
 
+    private static void RestockSelectedListFromRetainers()
+    {
+        if (CraftingListUI.selectedList.ID == 0 && CraftingListUI.selectedList.Recipes.Count == 0)
+            return;
+
+        if (!RetainerInfo.ATools)
+        {
+            Svc.Log.Warning("Cannot force retainer restock because Allagan Tools is unavailable or disabled.");
+            return;
+        }
+
+        if (RetainerInfo.TM.IsBusy)
+        {
+            Svc.Log.Warning("Cannot force retainer restock because Artisan retainer tasks are already running.");
+            return;
+        }
+
+        if (RetainerInfo.GetReachableRetainerBell() == null)
+        {
+            Svc.Log.Warning("Cannot force retainer restock because no reachable summoning bell was found.");
+            return;
+        }
+
+        RetainerInfo.RestockFromRetainers(CraftingListUI.selectedList);
+    }
+
     public static void Dispose()
     {
         contextMenu.OnMenuOpened -= AddMenu;
@@ -347,4 +415,3 @@ internal static class CraftingListContextMenu
         Chat2IPC.Disable();
     }
 }
-

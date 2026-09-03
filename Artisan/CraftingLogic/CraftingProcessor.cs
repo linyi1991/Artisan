@@ -87,7 +87,10 @@ public static class CraftingProcessor
 
     public static ISolverDefinition.Desc GetSolverForRecipe(RecipeConfig? recipeConfig, CraftState craft)
     {
-        var s = FindSolver(craft, recipeConfig?.SolverType ?? "", recipeConfig?.SolverFlavour ?? 0);
+        var configuredSolverType = recipeConfig?.SolverType ?? "";
+        var configuredSolverFlavour = recipeConfig?.SolverFlavour ?? 0;
+
+        var s = FindSolver(craft, configuredSolverType, configuredSolverFlavour);
         if (s != null)
             return s.Value;
 

@@ -38,7 +38,7 @@ namespace Artisan
         public bool MaterialMiracleMulti;
         public bool LowStatsMode = false;
         public bool UseTricksExcellent = false;
-        public bool UseSpecialist = false;
+        public bool UseSpecialist = true;
         public bool ShowEHQ = true;
         public int CurrentSimulated = 0;
         public bool UseSimulatedStartingQuality = false;
@@ -57,11 +57,11 @@ namespace Artisan
         public int AutoDelay = 0;
         public bool DelayRecommendation = false;
         public int RecommendationDelay = 0;
-        public bool AbortIfNoFoodPot = false;
-        public bool Repair = false;
+        public bool AbortIfNoFoodPot = true;
+        public bool Repair = true;
         public bool PrioritizeRepairNPC = false;
-        public bool DisableEnduranceNoRepair = false;
-        public bool DisableListsNoRepair = false;
+        public bool DisableEnduranceNoRepair = true;
+        public bool DisableListsNoRepair = true;
         public bool QuickSynthMode = false;
         public bool DisableToasts = false;
         public bool ShowOnlyCraftable = false;
@@ -69,8 +69,8 @@ namespace Artisan
         public bool Materia = false;
         public bool LockMiniMenuR = true;
 
-        public bool EnduranceStopFail = false;
-        public bool EnduranceStopNQ = false;
+        public bool EnduranceStopFail = true;
+        public bool EnduranceStopNQ = true;
 
         public int RepairPercent = 50;
 
@@ -107,7 +107,7 @@ namespace Artisan
         public bool DefaultListMateria = false;
         public bool DefaultListSkip = false;
         public bool DefaultListSkipLiteral = false;
-        public bool DefaultListRepair = false;
+        public bool DefaultListRepair = true;
         public int DefaultListRepairPercent = 50;
         public bool DefaultListQuickSynth = false;
         public bool ResetTimesToAdd = false;
@@ -118,6 +118,7 @@ namespace Artisan
         public bool ShowMacroAssignResults = false;
         public bool HideContextMenus = false;
         public int ContextMenuLoops = 1;
+        public int RecipeWindowRetainerRestockMax = 999;
         public float ListCraftThrottle2 = 1f;
 
         public bool DefaultHideInventoryColumn = false;
@@ -130,8 +131,8 @@ namespace Artisan
         public bool DefaultHideGatherLocationColumn = false;
         public bool DefaultHideIdColumn = false;
 
-        public bool DefaultColourValidation = false;
-        public bool DefaultHQCrafts = false;
+        public bool DefaultColourValidation = true;
+        public bool DefaultHQCrafts = true;
 
         public int ListOpacity = 100;
 
@@ -150,7 +151,7 @@ namespace Artisan
         public int CraftX = 0;
 
         [NonSerialized]
-        private bool autoMode = false;
+        private bool autoMode = true;
 
         public bool ViewedEnduranceMessage = false;
 
@@ -166,6 +167,46 @@ namespace Artisan
         public ConcurrentDictionary<string, MacroSolverSettings.Macro> RaphaelSolverCacheV2 = [];
         public ConcurrentDictionary<string, MacroSolverSettings.Macro> RaphaelSolverCacheV3 = [];
 
+        public void ApplySafeRecommendedSettings()
+        {
+            MaxPercentage = 100;
+            UseTricksGood = false;
+            UseTricksExcellent = false;
+            UseSpecialist = true;
+            UseQualityStarter = false;
+            UseMaterialMiracle = false;
+            MaterialMiracleMulti = false;
+            SolverCollectibleMode = 3;
+
+            AbortIfNoFoodPot = true;
+            Repair = true;
+            RepairPercent = 50;
+            DisableEnduranceNoRepair = true;
+            DisableListsNoRepair = true;
+            EnduranceStopFail = true;
+            EnduranceStopNQ = true;
+            QuickSynthMode = false;
+            MaxQuantityMode = false;
+
+            DefaultListRepair = true;
+            DefaultListRepairPercent = 50;
+            DefaultListQuickSynth = false;
+            DefaultHQCrafts = true;
+            DefaultColourValidation = true;
+
+            ExpertSolverConfig.UseMaterialMiracle = false;
+            RaphaelSolverConfig.AllowEnsureReliability = false;
+            RaphaelSolverConfig.AllowBackloadProgress = true;
+            RaphaelSolverConfig.ShowSpecialistSettings = false;
+            RaphaelSolverConfig.AutoGenerate = true;
+            RaphaelSolverConfig.AutoSwitch = true;
+            RaphaelSolverConfig.AutoSwitchOnAll = false;
+            RaphaelSolverConfig.MaximumThreads = 1;
+            RaphaelSolverConfig.GenerateOnExperts = false;
+            RaphaelSolverConfig.TimeOutMins = 3;
+            Save();
+        }
+
         public void Save()
         {
             Svc.PluginInterface.SavePluginConfig(this);
@@ -180,7 +221,14 @@ namespace Artisan
                 var json = JObject.Parse(contents);
                 var version = (int?)json["Version"] ?? 0;
                 ConvertConfig(json, version);
-                return json.ToObject<Configuration>() ?? new();
+                var config = json.ToObject<Configuration>() ?? new();
+                if (config.RecipeWindowRetainerRestockMax == 99)
+                {
+                    config.RecipeWindowRetainerRestockMax = 999;
+                    Svc.PluginInterface.SavePluginConfig(config);
+                }
+
+                return config;
             }
             catch (Exception e)
             {

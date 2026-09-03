@@ -58,64 +58,64 @@ public class ExpertSolverSettings
 
     public bool Draw()
     {
-        ImGui.TextWrapped($"The expert recipe solver is not an alternative to the standard solver. This is used exclusively with expert recipes.");
+        ImGui.TextWrapped($"專家配方求解器只用於專家配方，並不是普通配方求解器的替代品。");
         if (expertIcon != null)
         {
-            ImGui.TextWrapped($"This solver only applies to recipes with the");
+            ImGui.TextWrapped($"此求解器只適用於製作筆記中帶有");
             ImGui.SameLine();
             ImGui.Image(expertIcon.Handle, expertIcon.Size, new Vector2(0, 0), new Vector2(1, 1), new Vector4(0.94f, 0.57f, 0f, 1f));
             ImGui.SameLine();
-            ImGui.TextWrapped($"icon in the crafting log.");
+            ImGui.TextWrapped($"圖示的配方。");
         }
         bool changed = false;
         ImGui.Indent();
-        if (ImGui.CollapsingHeader("Opener Settings"))
+        if (ImGui.CollapsingHeader("起手設定"))
         {
-            changed |= ImGui.Checkbox($"Use {Skills.Reflect.NameOfAction()} instead of {Skills.MuscleMemory.NameOfAction()} for the opener", ref UseReflectOpener);
-            changed |= ImGui.Checkbox($"Allow spending {Skills.MuscleMemory.NameOfAction()} on {Skills.IntensiveSynthesis.NameOfAction()} (400%) rather than {Skills.RapidSynthesis.NameOfAction()} (500%) if {Condition.Good.ToLocalizedString()} {ConditionString}", ref MuMeIntensiveGood);
-            changed |= ImGui.Checkbox($"If {Condition.Malleable.ToLocalizedString()} {ConditionString} during {Skills.MuscleMemory.NameOfAction()}, use {Skills.HeartAndSoul.NameOfAction()} + {Skills.IntensiveSynthesis.NameOfAction()}", ref MuMeIntensiveMalleable);
-            changed |= ImGui.Checkbox($"If at last step of {Skills.MuscleMemory.NameOfAction()} and not {Condition.Centered.ToLocalizedString()} {ConditionString}, use {Skills.IntensiveSynthesis.NameOfAction()} (forcing via {Skills.HeartAndSoul.NameOfAction()} if necessary)", ref MuMeIntensiveLastResort);
-            changed |= ImGui.Checkbox($"Use {Skills.Manipulation.NameOfAction()} on {Condition.Primed.ToLocalizedString()} {ConditionString}, if {Skills.Veneration.NameOfAction()} is already active", ref MuMePrimedManip);
-            changed |= ImGui.Checkbox($"{Skills.Observe.NameOfAction()} during unfavourable {ConditionString} instead of spending {DurabilityString} on {Skills.RapidSynthesis.NameOfAction()}", ref MuMeAllowObserve);
-            ImGui.Text($"Allow {Skills.Manipulation.NameOfAction()} only if more than this amount of steps remain on {Skills.MuscleMemory.NameOfAction()}");
+            changed |= ImGui.Checkbox($"起手改用{Skills.Reflect.NameOfAction()}，不使用{Skills.MuscleMemory.NameOfAction()}", ref UseReflectOpener);
+            changed |= ImGui.Checkbox($"狀態為{Condition.Good.ToLocalizedString()}時，允許將{Skills.MuscleMemory.NameOfAction()}用於{Skills.IntensiveSynthesis.NameOfAction()} (400%)，而不是{Skills.RapidSynthesis.NameOfAction()} (500%)", ref MuMeIntensiveGood);
+            changed |= ImGui.Checkbox($"{Skills.MuscleMemory.NameOfAction()}期間遇到{Condition.Malleable.ToLocalizedString()}{ConditionString}時，使用{Skills.HeartAndSoul.NameOfAction()} + {Skills.IntensiveSynthesis.NameOfAction()}", ref MuMeIntensiveMalleable);
+            changed |= ImGui.Checkbox($"{Skills.MuscleMemory.NameOfAction()}剩最後一步且不是{Condition.Centered.ToLocalizedString()}{ConditionString}時，使用{Skills.IntensiveSynthesis.NameOfAction()}；必要時搭配{Skills.HeartAndSoul.NameOfAction()}", ref MuMeIntensiveLastResort);
+            changed |= ImGui.Checkbox($"{Skills.Veneration.NameOfAction()}已生效且狀態為{Condition.Primed.ToLocalizedString()}時，使用{Skills.Manipulation.NameOfAction()}", ref MuMePrimedManip);
+            changed |= ImGui.Checkbox($"狀態不利時使用{Skills.Observe.NameOfAction()}，避免以{Skills.RapidSynthesis.NameOfAction()}消耗{DurabilityString}", ref MuMeAllowObserve);
+            ImGui.Text($"只有在{Skills.MuscleMemory.NameOfAction()}剩餘步數高於下列數值時，才使用{Skills.Manipulation.NameOfAction()}");
             ImGui.PushItemWidth(250);
             changed |= ImGui.SliderInt("###MumeMinStepsForManip", ref MuMeMinStepsForManip, 0, 5);
-            ImGui.Text($"Allow {Skills.Veneration.NameOfAction()} only if more than this amount of steps remain on {Skills.MuscleMemory.NameOfAction()}");
+            ImGui.Text($"只有在{Skills.MuscleMemory.NameOfAction()}剩餘步數高於下列數值時，才使用{Skills.Veneration.NameOfAction()}");
             ImGui.PushItemWidth(250);
             changed |= ImGui.SliderInt("###MuMeMinStepsForVene", ref MuMeMinStepsForVene, 0, 5);
         }
-        if (ImGui.CollapsingHeader("Main Rotation Settings"))
+        if (ImGui.CollapsingHeader("主要循環設定"))
         {
-            ImGui.Text($"Minimum {Buffs.InnerQuiet.NameOfBuff()} stacks to spend {Skills.HeartAndSoul.NameOfAction()} on {Skills.PreciseTouch.NameOfAction()} (10 to disable)");
+            ImGui.Text($"使用{Skills.HeartAndSoul.NameOfAction()} + {Skills.PreciseTouch.NameOfAction()}所需的最低{Buffs.InnerQuiet.NameOfBuff()}層數 (10 代表停用)");
             ImGui.PushItemWidth(250);
             changed |= ImGui.SliderInt($"###MidMinIQForHSPrecise", ref MidMinIQForHSPrecise, 0, 10);
-            changed |= ImGui.Checkbox($"On low {DurabilityString}, prefer {Skills.Observe.NameOfAction()} over non-{Condition.Pliant.ToLocalizedString()} {Skills.Manipulation.NameOfAction()} before {Buffs.InnerQuiet.NameOfBuff()} has 10 stacks", ref MidBaitPliantWithObservePreQuality);
-            changed |= ImGui.Checkbox($"On low {DurabilityString}, prefer {Skills.Observe.NameOfAction()} over non-{Condition.Pliant.ToLocalizedString()} {Skills.Manipulation.NameOfAction()} / {Skills.Innovation.NameOfAction()}+{Skills.TrainedFinesse.NameOfAction()} after {Buffs.InnerQuiet.NameOfBuff()} has 10 stacks", ref MidBaitPliantWithObserveAfterIQ);
-            changed |= ImGui.Checkbox($"Use {Skills.Manipulation.NameOfAction()} on {Condition.Primed.ToLocalizedString()} {ConditionString} before {Buffs.InnerQuiet.NameOfBuff()} has 10 stacks", ref MidPrimedManipPreQuality);
-            changed |= ImGui.Checkbox($"Use {Skills.Manipulation.NameOfAction()} on {Condition.Primed.ToLocalizedString()} {ConditionString} after {Buffs.InnerQuiet.NameOfBuff()} has 10 stacks, if enough CP is available to utilize {DurabilityString} well", ref MidPrimedManipAfterIQ);
-            changed |= ImGui.Checkbox($"Allow {Skills.Observe.NameOfAction()} during unfavourable {ConditionString} without buffs", ref MidKeepHighDuraUnbuffed);
-            changed |= ImGui.Checkbox($"Allow {Skills.Observe.NameOfAction()} during unfavourable {ConditionString} under {Buffs.Veneration.NameOfBuff()}", ref MidKeepHighDuraVeneration);
-            changed |= ImGui.Checkbox($"Allow {Skills.Veneration.NameOfAction()} if we still have large {ProgressString} deficit (more than {Skills.IntensiveSynthesis.NameOfAction()} can complete) on {Condition.GoodOmen.ToLocalizedString()}", ref MidAllowVenerationGoodOmen);
-            changed |= ImGui.Checkbox($"Allow {Skills.Veneration.NameOfAction()} if we still have large {ProgressString} deficit (more than {Skills.RapidSynthesis.NameOfAction()} can complete) after {Buffs.InnerQuiet.NameOfBuff()} has 10 stacks", ref MidAllowVenerationAfterIQ);
-            changed |= ImGui.Checkbox($"Spend {Condition.Good.ToLocalizedString()} {ConditionString} on {Skills.IntensiveSynthesis.NameOfAction()} if we need more {ProgressString} without buffs", ref MidAllowIntensiveUnbuffed);
-            changed |= ImGui.Checkbox($"Spend {Condition.Good.ToLocalizedString()} {ConditionString} on {Skills.IntensiveSynthesis.NameOfAction()} if we need more {ProgressString} under {Skills.Veneration.NameOfAction()}", ref MidAllowIntensiveVeneration);
-            changed |= ImGui.Checkbox($"Spend {Condition.Good.ToLocalizedString()} {ConditionString} on {Skills.PreciseTouch.NameOfAction()} if we need more {Buffs.InnerQuiet.NameOfBuff()} stacks", ref MidAllowPrecise);
-            changed |= ImGui.Checkbox($"Consider {Condition.Sturdy.ToLocalizedString()} {ConditionString} {Skills.HeartAndSoul.NameOfAction()} + {Skills.PreciseTouch.NameOfAction()} a good move for building {Buffs.InnerQuiet.NameOfBuff()} stacks", ref MidAllowSturdyPreсise);
-            changed |= ImGui.Checkbox($"Consider {Condition.Centered.ToLocalizedString()} {ConditionString} {Skills.HastyTouch.NameOfAction()} a good move for building {Buffs.InnerQuiet.NameOfBuff()} stacks (85% success, 10 {DurabilityString})", ref MidAllowCenteredHasty);
-            changed |= ImGui.Checkbox($"Consider {Condition.Sturdy.ToLocalizedString()} {ConditionString} {Skills.HastyTouch.NameOfAction()} a good move for building {Buffs.InnerQuiet.NameOfBuff()} stacks (50% success, 5 {DurabilityString})", ref MidAllowSturdyHasty);
-            changed |= ImGui.Checkbox($"Consider {Skills.PreparatoryTouch.NameOfAction()} a good move under {Condition.Good.ToLocalizedString()} {ConditionString} + {Buffs.Innovation.NameOfBuff()} + {Buffs.GreatStrides.NameOfBuff()}, assuming we have enough {DurabilityString}", ref MidAllowGoodPrep);
-            changed |= ImGui.Checkbox($"Consider {Skills.PreparatoryTouch.NameOfAction()} a good move under {Condition.Sturdy.ToLocalizedString()} {ConditionString} + {Buffs.Innovation.NameOfBuff()}, assuming we have enough {DurabilityString}", ref MidAllowSturdyPrep);
-            changed |= ImGui.Checkbox($"Use {Skills.GreatStrides.NameOfAction()} before {Skills.Innovation.NameOfAction()} + {QualityString} combos", ref MidGSBeforeInno);
-            changed |= ImGui.Checkbox($"Finish {ProgressString} before starting {QualityString} phase", ref MidFinishProgressBeforeQuality);
-            changed |= ImGui.Checkbox($"{Skills.Observe.NameOfAction()} on {Condition.GoodOmen.ToLocalizedString()} {ConditionString} if we would otherwise use {Skills.TricksOfTrade.NameOfAction()} on {Condition.Good.ToLocalizedString()} {ConditionString}", ref MidObserveGoodOmenForTricks);
+            changed |= ImGui.Checkbox($"{DurabilityString}偏低且{Buffs.InnerQuiet.NameOfBuff()}未滿 10 層時，優先用{Skills.Observe.NameOfAction()}等待{Condition.Pliant.ToLocalizedString()}，避免直接使用{Skills.Manipulation.NameOfAction()}", ref MidBaitPliantWithObservePreQuality);
+            changed |= ImGui.Checkbox($"{DurabilityString}偏低且{Buffs.InnerQuiet.NameOfBuff()}已滿 10 層時，優先用{Skills.Observe.NameOfAction()}等待{Condition.Pliant.ToLocalizedString()}，避免直接使用{Skills.Manipulation.NameOfAction()}或{Skills.Innovation.NameOfAction()} + {Skills.TrainedFinesse.NameOfAction()}", ref MidBaitPliantWithObserveAfterIQ);
+            changed |= ImGui.Checkbox($"{Buffs.InnerQuiet.NameOfBuff()}未滿 10 層且狀態為{Condition.Primed.ToLocalizedString()}時，使用{Skills.Manipulation.NameOfAction()}", ref MidPrimedManipPreQuality);
+            changed |= ImGui.Checkbox($"{Buffs.InnerQuiet.NameOfBuff()}已滿 10 層且 CP 足夠時，在{Condition.Primed.ToLocalizedString()}{ConditionString}使用{Skills.Manipulation.NameOfAction()}", ref MidPrimedManipAfterIQ);
+            changed |= ImGui.Checkbox($"沒有增益時，允許在不利{ConditionString}使用{Skills.Observe.NameOfAction()}", ref MidKeepHighDuraUnbuffed);
+            changed |= ImGui.Checkbox($"{Buffs.Veneration.NameOfBuff()}期間，允許在不利{ConditionString}使用{Skills.Observe.NameOfAction()}", ref MidKeepHighDuraVeneration);
+            changed |= ImGui.Checkbox($"遇到{Condition.GoodOmen.ToLocalizedString()}且仍欠缺大量{ProgressString}時，允許使用{Skills.Veneration.NameOfAction()}", ref MidAllowVenerationGoodOmen);
+            changed |= ImGui.Checkbox($"{Buffs.InnerQuiet.NameOfBuff()}已滿 10 層且仍欠缺大量{ProgressString}時，允許使用{Skills.Veneration.NameOfAction()}", ref MidAllowVenerationAfterIQ);
+            changed |= ImGui.Checkbox($"沒有增益且需要更多{ProgressString}時，將{Condition.Good.ToLocalizedString()}{ConditionString}用於{Skills.IntensiveSynthesis.NameOfAction()}", ref MidAllowIntensiveUnbuffed);
+            changed |= ImGui.Checkbox($"{Skills.Veneration.NameOfAction()}期間需要更多{ProgressString}時，將{Condition.Good.ToLocalizedString()}{ConditionString}用於{Skills.IntensiveSynthesis.NameOfAction()}", ref MidAllowIntensiveVeneration);
+            changed |= ImGui.Checkbox($"需要更多{Buffs.InnerQuiet.NameOfBuff()}層數時，將{Condition.Good.ToLocalizedString()}{ConditionString}用於{Skills.PreciseTouch.NameOfAction()}", ref MidAllowPrecise);
+            changed |= ImGui.Checkbox($"將{Condition.Sturdy.ToLocalizedString()}{ConditionString}下的{Skills.HeartAndSoul.NameOfAction()} + {Skills.PreciseTouch.NameOfAction()}視為累積{Buffs.InnerQuiet.NameOfBuff()}的有效選擇", ref MidAllowSturdyPreсise);
+            changed |= ImGui.Checkbox($"將{Condition.Centered.ToLocalizedString()}{ConditionString}下的{Skills.HastyTouch.NameOfAction()}視為累積{Buffs.InnerQuiet.NameOfBuff()}的有效選擇 (成功率 85%，消耗 10 {DurabilityString})", ref MidAllowCenteredHasty);
+            changed |= ImGui.Checkbox($"將{Condition.Sturdy.ToLocalizedString()}{ConditionString}下的{Skills.HastyTouch.NameOfAction()}視為累積{Buffs.InnerQuiet.NameOfBuff()}的有效選擇 (成功率 50%，消耗 5 {DurabilityString})", ref MidAllowSturdyHasty);
+            changed |= ImGui.Checkbox($"{DurabilityString}足夠時，將{Condition.Good.ToLocalizedString()}{ConditionString} + {Buffs.Innovation.NameOfBuff()} + {Buffs.GreatStrides.NameOfBuff()}下的{Skills.PreparatoryTouch.NameOfAction()}視為有效選擇", ref MidAllowGoodPrep);
+            changed |= ImGui.Checkbox($"{DurabilityString}足夠時，將{Condition.Sturdy.ToLocalizedString()}{ConditionString} + {Buffs.Innovation.NameOfBuff()}下的{Skills.PreparatoryTouch.NameOfAction()}視為有效選擇", ref MidAllowSturdyPrep);
+            changed |= ImGui.Checkbox($"在{Skills.Innovation.NameOfAction()} + {QualityString}連段前先使用{Skills.GreatStrides.NameOfAction()}", ref MidGSBeforeInno);
+            changed |= ImGui.Checkbox($"先完成{ProgressString}，再進入{QualityString}階段", ref MidFinishProgressBeforeQuality);
+            changed |= ImGui.Checkbox($"遇到{Condition.GoodOmen.ToLocalizedString()}{ConditionString}時使用{Skills.Observe.NameOfAction()}，等待後續以{Condition.Good.ToLocalizedString()}{ConditionString}使用{Skills.TricksOfTrade.NameOfAction()}", ref MidObserveGoodOmenForTricks);
         }
         ImGui.Unindent();
-        changed |= ImGui.Checkbox("Max out Ishgard Restoration recipes instead of just hitting max breakpoint", ref MaxIshgardRecipes);
-        ImGuiComponents.HelpMarker("This will try to maximise quality to earn more Skyward points.");
-        changed |= ImGui.Checkbox($"Finisher: use {Skills.CarefulObservation.NameOfAction()} to try baiting {Condition.Good.ToLocalizedString()} {ConditionString} for {Skills.ByregotsBlessing.NameOfAction()}", ref FinisherBaitGoodByregot);
-        changed |= ImGui.Checkbox($"Emergency: use {Skills.CarefulObservation.NameOfAction()} to try baiting {Condition.Good.ToLocalizedString()} {ConditionString} for {Skills.TricksOfTrade.NameOfAction()} if really low on CP", ref EmergencyCPBaitGood);
-        changed |= ImGui.Checkbox($"Use Material Miracle in Cosmic Exploration", ref UseMaterialMiracle);
-        if (ImGuiEx.ButtonCtrl("Reset Expert Solver Settings To Default"))
+        changed |= ImGui.Checkbox("伊修加德復興配方儘量達到最高品質，而不是只達到最高檔位", ref MaxIshgardRecipes);
+        ImGuiComponents.HelpMarker("儘量提高品質，以取得更多天穹積分。");
+        changed |= ImGui.Checkbox($"收尾：使用{Skills.CarefulObservation.NameOfAction()}等待{Condition.Good.ToLocalizedString()}{ConditionString}，再使用{Skills.ByregotsBlessing.NameOfAction()}", ref FinisherBaitGoodByregot);
+        changed |= ImGui.Checkbox($"緊急回 CP：CP 很低時使用{Skills.CarefulObservation.NameOfAction()}等待{Condition.Good.ToLocalizedString()}{ConditionString}，再使用{Skills.TricksOfTrade.NameOfAction()}", ref EmergencyCPBaitGood);
+        changed |= ImGui.Checkbox($"宇宙探索中使用材料奇蹟", ref UseMaterialMiracle);
+        if (ImGuiEx.ButtonCtrl("重設專家求解器設定 (按住 CTRL)"))
         {
             P.Config.ExpertSolverConfig = new();
             changed |= true;

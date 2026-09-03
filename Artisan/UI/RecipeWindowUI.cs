@@ -2,6 +2,7 @@ using Artisan.Autocraft;
 using Artisan.CraftingLists;
 using Artisan.FCWorkshops;
 using Artisan.GameInterop;
+using Artisan.IPC;
 using Artisan.RawInformation;
 using Artisan.UI;
 using Dalamud.Interface.Utility.Raii;
@@ -121,8 +122,6 @@ namespace Artisan
                 ImGui.CalcTextSize("Craft X Times:");
                 var craftableCount = addonPtr->UldManager.NodeList[24]->GetAsAtkTextNode()->NodeText.ToString() == "" ? 0 : Convert.ToInt32(addonPtr->UldManager.NodeList[24]->GetAsAtkTextNode()->NodeText.ToString().GetNumbers());
 
-                if (craftableCount == 0) return;
-
                 ImGuiHelpers.ForceNextWindowMainViewport();
                 ImGuiHelpers.SetNextWindowPosRelativeMainViewport(new Vector2(position.X - 300f.Scale(), position.Y + 10f.Scale()));
 
@@ -198,7 +197,7 @@ namespace Artisan
                 }
                 else
                 {
-                    string searchText = Svc.Data.Excel.GetSheet<Addon>().GetRow(1412).Text.ExtractText();
+                    string searchText = Svc.Data.Excel.GetSheet<Addon>().GetRow(1412).Text.GetText();
                     searchLabel->GetAsAtkTextNode()->SetText(searchText);
                     return;
                 }
@@ -595,9 +594,9 @@ namespace Artisan
                     var itemNameNode = addonPtr->UldManager.NodeList[37]->GetAsAtkTextNode();
                     var phaseProgress = addonPtr->UldManager.NodeList[26]->GetAsAtkTextNode();
 
-                    if (LuminaSheets.WorkshopSequenceSheet.Values.Any(x => x.ResultItem.Value.Name.ExtractText() == itemNameNode->NodeText.ExtractText()))
+                    if (LuminaSheets.WorkshopSequenceSheet.Values.Any(x => x.ResultItem.Value.Name.GetText() == itemNameNode->NodeText.GetText()))
                     {
-                        var project = LuminaSheets.WorkshopSequenceSheet.Values.First(x => x.ResultItem.Value.Name.ExtractText() == itemNameNode->NodeText.ExtractText());
+                        var project = LuminaSheets.WorkshopSequenceSheet.Values.First(x => x.ResultItem.Value.Name.GetText() == itemNameNode->NodeText.GetText());
                         var phaseNum = Convert.ToInt32(phaseProgress->NodeText.ToString().First().ToString());
 
                         if (project.CompanyCraftPart.Count(x => x.RowId > 0) == 1)
@@ -605,21 +604,21 @@ namespace Artisan
                             var part = project.CompanyCraftPart.First(x => x.RowId > 0).Value;
                             var phase = part.CompanyCraftProcess[phaseNum - 1];
 
-                            FCWorkshopUI.CreatePhaseList(phase.Value!, part.CompanyCraftType.Value.Name.ExtractText(), phaseNum, false, null, project);
-                            Notify.Success("FC Workshop List Created");
+                            FCWorkshopUI.CreatePhaseList(phase.Value!, part.CompanyCraftType.Value.Name.GetText(), phaseNum, false, null, project);
+                            Notify.Success("部隊工坊清單已建立");
                         }
                         else
                         {
                             var currentPartNode = addonPtr->UldManager.NodeList[28]->GetAsAtkTextNode();
-                            string partStep = currentPartNode->NodeText.ExtractText().Split(":").Last();
+                            string partStep = currentPartNode->NodeText.GetText().Split(":").Last();
 
-                            if (project.CompanyCraftPart.Any(x => x.Value.CompanyCraftType.Value.Name.ExtractText() == partStep))
+                            if (project.CompanyCraftPart.Any(x => x.Value.CompanyCraftType.Value.Name.GetText() == partStep))
                             {
-                                var part = project.CompanyCraftPart.First(x => x.Value.CompanyCraftType.Value.Name.ExtractText() == partStep).Value;
+                                var part = project.CompanyCraftPart.First(x => x.Value.CompanyCraftType.Value.Name.GetText() == partStep).Value;
                                 var phase = part.CompanyCraftProcess[phaseNum - 1];
 
-                                FCWorkshopUI.CreatePhaseList(phase.Value!, part.CompanyCraftType.Value.Name.ExtractText(), phaseNum, false, null, project);
-                                Notify.Success("FC Workshop List Created");
+                                FCWorkshopUI.CreatePhaseList(phase.Value!, part.CompanyCraftType.Value.Name.GetText(), phaseNum, false, null, project);
+                                Notify.Success("部隊工坊清單已建立");
                             }
                         }
                     }
@@ -630,9 +629,9 @@ namespace Artisan
                     var itemNameNode = addonPtr->UldManager.NodeList[37]->GetAsAtkTextNode();
                     var phaseProgress = addonPtr->UldManager.NodeList[26]->GetAsAtkTextNode();
 
-                    if (LuminaSheets.WorkshopSequenceSheet.Values.Any(x => x.ResultItem.Value.Name.ExtractText() == itemNameNode->NodeText.ExtractText()))
+                    if (LuminaSheets.WorkshopSequenceSheet.Values.Any(x => x.ResultItem.Value.Name.GetText() == itemNameNode->NodeText.GetText()))
                     {
-                        var project = LuminaSheets.WorkshopSequenceSheet.Values.First(x => x.ResultItem.Value.Name.ExtractText() == itemNameNode->NodeText.ExtractText());
+                        var project = LuminaSheets.WorkshopSequenceSheet.Values.First(x => x.ResultItem.Value.Name.GetText() == itemNameNode->NodeText.GetText());
                         var phaseNum = Convert.ToInt32(phaseProgress->NodeText.ToString().First().ToString());
 
                         if (project.CompanyCraftPart.Count(x => x.RowId > 0) == 1)
@@ -640,21 +639,21 @@ namespace Artisan
                             var part = project.CompanyCraftPart.First(x => x.RowId > 0).Value;
                             var phase = part.CompanyCraftProcess[phaseNum - 1];
 
-                            FCWorkshopUI.CreatePhaseList(phase.Value!, part.CompanyCraftType.Value.Name.ExtractText(), phaseNum, true, null, project);
-                            Notify.Success("FC Workshop List Created");
+                            FCWorkshopUI.CreatePhaseList(phase.Value!, part.CompanyCraftType.Value.Name.GetText(), phaseNum, true, null, project);
+                            Notify.Success("部隊工坊清單已建立");
                         }
                         else
                         {
                             var currentPartNode = addonPtr->UldManager.NodeList[28]->GetAsAtkTextNode();
-                            string partStep = currentPartNode->NodeText.ExtractText().Split(":").Last();
+                            string partStep = currentPartNode->NodeText.GetText().Split(":").Last();
 
-                            if (project.CompanyCraftPart.Any(x => x.Value.CompanyCraftType.Value.Name.ExtractText() == partStep))
+                            if (project.CompanyCraftPart.Any(x => x.Value.CompanyCraftType.Value.Name.GetText() == partStep))
                             {
-                                var part = project.CompanyCraftPart.First(x => x.Value.CompanyCraftType.Value.Name.ExtractText() == partStep).Value;
+                                var part = project.CompanyCraftPart.First(x => x.Value.CompanyCraftType.Value.Name.GetText() == partStep).Value;
                                 var phase = part.CompanyCraftProcess[phaseNum - 1];
 
-                                FCWorkshopUI.CreatePhaseList(phase.Value!, part.CompanyCraftType.Value.Name.ExtractText(), phaseNum, true, null, project);
-                                Notify.Success("FC Workshop List Created");
+                                FCWorkshopUI.CreatePhaseList(phase.Value!, part.CompanyCraftType.Value.Name.GetText(), phaseNum, true, null, project);
+                                Notify.Success("部隊工坊清單已建立");
                             }
                         }
                     }
@@ -832,8 +831,6 @@ namespace Artisan
                 ImGui.CalcTextSize("Craft X Times:");
                 var craftableCount = addonPtr->UldManager.NodeList[35]->GetAsAtkTextNode()->NodeText.ToString() == "" ? 0 : Convert.ToInt32(addonPtr->UldManager.NodeList[35]->GetAsAtkTextNode()->NodeText.ToString().GetNumbers());
 
-                if (craftableCount == 0) return;
-
                 ImGuiHelpers.ForceNextWindowMainViewport();
                 ImGuiHelpers.SetNextWindowPosRelativeMainViewport(new Vector2(position.X + (4f * scale.X) - 40f, position.Y - 16f - (17f * scale.Y)));
 
@@ -863,20 +860,27 @@ namespace Artisan
                 ImGui.AlignTextToFramePadding();
                 ImGui.Text("Craft X Times:");
                 ImGui.SameLine();
-                ImGui.PushItemWidth(110f * scale.X);
+                ImGui.PushItemWidth(150f * scale.X);
+                var maxCraftX = Math.Max(1, P.Config.RecipeWindowRetainerRestockMax);
                 if (ImGui.InputInt($"###TimesRepeat{node->NodeId}", ref P.Config.CraftX, step: 1, stepFast: 1))
                 {
                     if (P.Config.CraftX < 0)
                         P.Config.CraftX = 0;
 
-                    if (P.Config.CraftX > craftableCount)
-                        P.Config.CraftX = craftableCount;
+                    if (P.Config.CraftX > maxCraftX)
+                        P.Config.CraftX = maxCraftX;
 
                 }
+                ImGui.PopItemWidth();
                 ImGui.SameLine();
                 if (P.Config.CraftX > 0)
                 {
-                    if (ImGui.Button($"Craft {P.Config.CraftX}"))
+                    if (ImGui.Button($"取料 {P.Config.CraftX}", new Vector2(120f * scale.X, 0f)))
+                    {
+                        RestockCurrentRecipeFromRetainers(P.Config.CraftX);
+                    }
+                    ImGui.SameLine();
+                    if (ImGui.Button($"Craft {P.Config.CraftX}", new Vector2(130f * scale.X, 0f)))
                     {
                         P.Config.CraftingX = true;
                         Endurance.ToggleEndurance(true);
@@ -886,7 +890,7 @@ namespace Artisan
                 {
                     if (ImGui.Button($"Craft All ({craftableCount})"))
                     {
-                        P.Config.CraftX = craftableCount;
+                        P.Config.CraftX = Math.Min(craftableCount, maxCraftX);
                         P.Config.CraftingX = true;
                         Endurance.ToggleEndurance(true);
                     }
@@ -898,6 +902,43 @@ namespace Artisan
             ImGui.End();
             ImGui.PopStyleVar(5);
             ImGui.PopStyleColor();
+        }
+
+        private static void RestockCurrentRecipeFromRetainers(int amount)
+        {
+            if (amount <= 0 || Endurance.RecipeID == 0)
+                return;
+
+            if (!RetainerInfo.ATools)
+            {
+                Svc.Log.Warning("Cannot restock Craft X materials because Allagan Tools is unavailable or disabled.");
+                return;
+            }
+
+            if (RetainerInfo.TM.IsBusy)
+            {
+                Svc.Log.Warning("Cannot restock Craft X materials because Artisan retainer tasks are already running.");
+                return;
+            }
+
+            if (RetainerInfo.GetReachableRetainerBell() == null)
+            {
+                Svc.Log.Warning("Cannot restock Craft X materials because no reachable summoning bell was found.");
+                return;
+            }
+
+            if (!LuminaSheets.RecipeSheet!.TryGetFirst(x => x.Value.RowId == Endurance.RecipeID, out var recipe))
+            {
+                Svc.Log.Warning($"Cannot restock Craft X materials because recipe {Endurance.RecipeID} was not found.");
+                return;
+            }
+
+            var list = new NewCraftingList
+            {
+                Name = $"Craft X 取料 - {recipe.Value.ItemResult.Value.Name}",
+            };
+            list.Recipes.Add(new ListItem { ID = Endurance.RecipeID, Quantity = amount });
+            RetainerInfo.RestockFromRetainers(list);
         }
 
         private static void ShowCraftMenuWindow(string windowName)
