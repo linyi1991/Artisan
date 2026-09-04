@@ -528,7 +528,7 @@ public unsafe static class PreCrafting
     {
         if (TryGetAddonByName<AtkUnitBase>("WKSRecipeNotebook", out var cosmicAddon))
         {
-            if (cosmicAddon == null)
+            if (cosmicAddon == null || !cosmicAddon->IsVisible || !cosmicAddon->IsReady)
                 return TaskResult.Retry;
 
             Svc.Log.Debug($"Starting actual cosmic craft");

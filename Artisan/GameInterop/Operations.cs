@@ -130,7 +130,7 @@ public static unsafe class Operations
 
         if (TryGetAddonByName<AtkUnitBase>("WKSRecipeNotebook", out var cosmicAddon))
         {
-            if (cosmicAddon == null)
+            if (cosmicAddon == null || !cosmicAddon->IsVisible || !cosmicAddon->IsReady)
                 return false;
 
             Svc.Log.Debug($"Starting actual cosmic craft");
