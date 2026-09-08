@@ -78,6 +78,28 @@ namespace Artisan.Autocraft
                 }
                 else if (finalStep.Progress < craft.CraftProgress && P.Config.EnduranceStopFail)
                 {
+                    var ipcControlledCosmicCraft = Endurance.IPCOverride && craft.IsCosmic;
+
+                    // ICE drives cosmic crafts through CraftX.  If one craft fails,
+                    // merely disabling Endurance leaves the old CraftX/task-manager
+                    // work queued, so Artisan.IsBusy() never clears and ICE cannot
+                    // re-evaluate the mission or retry with the remaining materials.
+                    // Fully release the IPC-owned attempt and hand control back to
+                    // ICE.  Manual Endurance retains its original stop-on-failure
+                    // behaviour below.
+                    if (ipcControlledCosmicCraft)
+                    {
+                        P.Config.CraftingX = false;
+                        P.Config.CraftX = 0;
+                        P.TM.Abort();
+                        P.CTM.Abort();
+                        PreCrafting.Tasks.Clear();
+                        Endurance.ToggleEndurance(false);
+                        Svc.Toasts.ShowError("宇宙製作失敗；已清除舊製作狀態，交由 ICE 重新檢查任務與剩餘材料。");
+                        DuoLog.Error("Cosmic IPC craft failed. Cleared CraftX state so ICE can re-evaluate and retry.");
+                        return;
+                    }
+
                     Endurance.ToggleEndurance(false);
                     Svc.Toasts.ShowError("You failed a craft. Disabling Endurance.");
                     DuoLog.Error("You failed a craft. Disabling Endurance.");

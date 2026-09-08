@@ -725,6 +725,16 @@ public static unsafe class Crafting
                     Svc.Log.Error($"Prediction error: expected durability delta {advancePayload->DeltaDurability}, got {predictedDeltaDurability}");
                 if ((_predictedNextStep.Progress >= CurCraft!.CraftProgress || _predictedNextStep.Durability <= 0) != complete)
                     Svc.Log.Error($"Prediction error: unexpected completion state diff (got {complete})");
+
+                // Treat the game payload as authoritative. Cosmic recipes can differ from
+                // the local simulator by a point because of game-version/data rounding.
+                // Keeping the predicted numeric values here makes the state machine wait for
+                // a state that will never arrive and can prevent the next action from being
+                // queued. Keep the diagnostics above, then resynchronize before solving the
+                // next step.
+                _predictedNextStep.Progress = advancePayload->CurProgress;
+                _predictedNextStep.Quality = advancePayload->CurQuality;
+                _predictedNextStep.Durability = advancePayload->CurDurability;
                 _predictionDeadline = DateTime.Now.AddSeconds(0.5f); // if we don't get status effect list quickly enough, bail out...
                 break;
             case CraftingEventHandler.OperationId.QuickSynthStart:
