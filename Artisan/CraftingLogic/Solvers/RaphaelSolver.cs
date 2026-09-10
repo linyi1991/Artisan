@@ -47,10 +47,11 @@ namespace Artisan.CraftingLogic.Solvers
     {
         internal static readonly ConcurrentDictionary<string, Tuple<CancellationTokenSource, Task>> Tasks = [];
         private static readonly ConcurrentDictionary<uint, DateTimeOffset> CosmicSkipLogTimes = [];
+        private static readonly RaphaelRetryGuard RetryGuard = new();
         [NonSerialized]
         public static Dictionary<string, RaphaelSolutionConfig> TempConfigs = new();
 
-        public static void Build(CraftState craft, RaphaelSolutionConfig config)
+        public static void Build(CraftState craft, RaphaelSolutionConfig config, bool automatic = false)
         {
             if (craft.IsCosmic || IsCosmicContextOpen())
             {
@@ -66,11 +67,17 @@ namespace Artisan.CraftingLogic.Solvers
             }
 
             var key = GetKey(craft);
+            var attemptSettings = new RaphaelAttemptSettings(craft.RecipeId, craft.StatLevel, craft.UnlockedManipulation,
+                config.EnsureReliability, config.BackloadProgress, config.HeartAndSoul, config.QuickInno,
+                P.Config.RaphaelSolverConfig.MaximumThreads, P.Config.RaphaelSolverConfig.TimeOutMins);
+            if (RetryGuard.ShouldSkip(key, attemptSettings, automatic))
+                return;
 
             if (CLIExists() && !Tasks.ContainsKey(key))
             {
                 P.Config.RaphaelSolverCacheV3.TryRemove(key, out _);
 
+                RetryGuard.RecordAttempt(key, attemptSettings);
                 Svc.Log.Information("Spawning Raphael process");
 
                 var manipulation = craft.UnlockedManipulation ? "--manipulation" : "";
@@ -139,8 +146,10 @@ namespace Artisan.CraftingLogic.Solvers
                 });
                 cts.CancelAfter(TimeSpan.FromMinutes(P.Config.RaphaelSolverConfig.TimeOutMins));
 
+                var registered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var task = Task.Run(async () =>
                 {
+                    await registered.Task.ConfigureAwait(false);
                     try
                     {
                         if (!process.Start())
@@ -219,6 +228,7 @@ namespace Artisan.CraftingLogic.Solvers
                         }
 
                         P.Config.Save();
+                        RetryGuard.RecordSuccess(key);
                     }
                     catch (OperationCanceledException)
                     {
@@ -236,9 +246,10 @@ namespace Artisan.CraftingLogic.Solvers
                         process.Dispose();
                         cts.Dispose();
                     }
-                }, cts.Token);
+                });
 
-                Tasks.TryAdd(key, new(cts, task));
+                Tasks[key] = new(cts, task);
+                registered.SetResult(true);
             }
         }
 
@@ -378,7 +389,7 @@ namespace Artisan.CraftingLogic.Solvers
                     if (liveStats && P.Config.RaphaelSolverConfig.AutoGenerate && CraftingProcessor.GetAvailableSolversForRecipe(craft, true).Any())
                     {
                         if (!craft.CraftExpert || (craft.CraftExpert && P.Config.RaphaelSolverConfig.GenerateOnExperts))
-                            Build(craft, TempConfigs[key]);
+                            Build(craft, TempConfigs[key], automatic: true);
                     }
                 }
 
@@ -414,8 +425,11 @@ namespace Artisan.CraftingLogic.Solvers
                 {
                     if (ImGui.Button("取消 Raphael 運算", new Vector2(ImGui.GetContentRegionAvail().X, 25f.Scale())))
                     {
-                        Tasks.TryRemove(key, out var task);
-                        task.Item1.Cancel();
+                        if (Tasks.TryGetValue(key, out var task))
+                        {
+                            try { task.Item1.Cancel(); }
+                            catch (ObjectDisposedException) { /* Completed concurrently. */ }
+                        }
                     }
                 }
 
