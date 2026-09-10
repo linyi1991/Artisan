@@ -380,7 +380,7 @@ namespace Artisan.CraftingLogic.Solvers
                         }
                         else
                         {
-                            ImGuiEx.TextCentered($"Raphael Solution Has Been Generated.");
+                            ImGuiEx.TextCentered($"Raphael 製作方案已產生。");
                         }
                     }
                 }
@@ -401,13 +401,13 @@ namespace Artisan.CraftingLogic.Solvers
                     ImGui.BeginDisabled();
 
                 if (P.Config.RaphaelSolverConfig.AllowEnsureReliability)
-                    raphChanges |= ImGui.Checkbox($"Ensure reliability##{key}Reliability", ref TempConfigs[key].EnsureReliability);
+                    raphChanges |= ImGui.Checkbox($"確保可靠性###Ensure reliability##{key}Reliability", ref TempConfigs[key].EnsureReliability);
                 if (P.Config.RaphaelSolverConfig.AllowBackloadProgress)
                     raphChanges |= ImGui.Checkbox($"回填進度##{key}Progress", ref TempConfigs[key].BackloadProgress);
                 if (P.Config.RaphaelSolverConfig.ShowSpecialistSettings && craft.Specialist)
-                    raphChanges |= ImGui.Checkbox($"Allow heart and soul usage##{key}HS", ref TempConfigs[key].HeartAndSoul);
+                    raphChanges |= ImGui.Checkbox($"允許使用 Heart and Soul###Allow heart and soul usage##{key}HS", ref TempConfigs[key].HeartAndSoul);
                 if (P.Config.RaphaelSolverConfig.ShowSpecialistSettings && craft.Specialist)
-                    raphChanges |= ImGui.Checkbox($"Allow quick innovation usage##{key}QI", ref TempConfigs[key].QuickInno);
+                    raphChanges |= ImGui.Checkbox($"允許使用 Quick Innovation###Allow quick innovation usage##{key}QI", ref TempConfigs[key].QuickInno);
 
                 changed |= raphChanges;
 
@@ -436,18 +436,18 @@ namespace Artisan.CraftingLogic.Solvers
                 if (TempConfigs[key].EnsureReliability && ImGui.IsItemHovered())
                 {
                     ImGui.BeginTooltip();
-                    ImGui.Text("Ensuring quality is enabled, no support shall be provided when its enabled\nDue to problems that can be caused.");
+                    ImGui.Text("已啟用品質可靠性模式。此模式可能造成問題，\n啟用時不提供相關支援。");
                     ImGui.EndTooltip();
                 }
 
                 if (TempConfigs[key].HeartAndSoul || TempConfigs[key].QuickInno)
                 {
-                    ImGui.Text("Specialist actions are enabled, this can slow down the solver a lot.");
+                    ImGui.Text("已啟用專家技能，求解速度可能大幅降低。");
                 }
 
                 if (inProgress)
                 {
-                    ImGuiEx.TextCentered("Generating...");
+                    ImGuiEx.TextCentered("正在產生方案……");
                 }
             }
 
