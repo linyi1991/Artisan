@@ -109,8 +109,7 @@ namespace Artisan.Autocraft
                     P.Config.CraftX -= 1;
                     if (P.Config.CraftX == 0)
                     {
-                        P.Config.CraftingX = false;
-                        Endurance.ToggleEndurance(false);
+                        Endurance.CompleteFixedCount();
                         if (P.Config.PlaySoundFinishEndurance)
                             SoundPlayer.PlaySound();
                         DuoLog.Information("Craft X has completed.");

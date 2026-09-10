@@ -89,6 +89,38 @@ namespace Artisan.Autocraft
             }
         }
 
+        internal static void CompleteFixedCount()
+        {
+            // Capture ownership before ToggleEndurance clears IPCOverride.
+            var exitManualCraft = Enable && P.Config.CraftingX && P.Config.CraftX == 0
+                && !IPCOverride && !CraftingListUI.Processing
+                && Crafting.CurCraft?.IsCosmic != true;
+            P.Config.CraftingX = false;
+            ToggleEndurance(false);
+            if (!exitManualCraft)
+                return;
+
+            var deadline = Environment.TickCount64 + 30000;
+            Svc.Log.Information("Manual Craft X completed; waiting to exit crafting state.");
+            PreCrafting.Tasks.Add((() =>
+            {
+                // Never close a menu belonging to a newly started automation.
+                if (Enable || IPCOverride || CraftingListUI.Processing)
+                    return PreCrafting.TaskResult.Done;
+                if (Environment.TickCount64 >= deadline)
+                {
+                    Svc.Log.Warning("Manual Craft X exit timed out; please close the crafting menu manually.");
+                    return PreCrafting.TaskResult.Done;
+                }
+                // This primitive waits through the final animation and only closes
+                // the recipe notebook in IdleBetween, never an active synthesis.
+                var result = PreCrafting.TaskExitCraft();
+                if (result == PreCrafting.TaskResult.Done)
+                    Svc.Log.Information("Manual Craft X exited crafting state.");
+                return result;
+            }, TimeSpan.FromMilliseconds(200)));
+        }
+
         internal static void Dispose()
         {
             Svc.Toasts.ErrorToast -= Toasts_ErrorToast;
@@ -295,8 +327,7 @@ namespace Artisan.Autocraft
 
                 if (P.Config.CraftingX && P.Config.CraftX == 0 || PreCrafting.GetNumberCraftable(recipe) == 0)
                 {
-                    ToggleEndurance(false);
-                    P.Config.CraftingX = false;
+                    CompleteFixedCount();
                     DuoLog.Information("Craft X has completed.");
                     if (P.Config.PlaySoundFinishEndurance)
                         SoundPlayer.PlaySound();
