@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Authors></Authors>
     <Company></Company>
-    <Version>4.0.3.114</Version>
+    <Version>4.0.3.121-api13-tw-craftimizer5</Version>
     <Description>A 'simple' crafting plugin.</Description>
     <Copyright>Taurenkey</Copyright>
   </PropertyGroup>
@@ -104,6 +104,11 @@
     <PackageReference Include="SharpDX.Direct2D1" Version="4.2.0" />
     <ProjectReference Include="..\OtterGui\OtterGui.csproj" />
     <ProjectReference Include="..\PunishLib\PunishLib\PunishLib.csproj" />
+    <ProjectReference Include="..\..\Craftimizer-API13-SolverCore\Simulator\Craftimizer.Simulator.csproj" />
+    <ProjectReference Include="..\..\Craftimizer-API13-SolverCore\Solver\Craftimizer.Solver.csproj" />
+    <None Include="..\..\Craftimizer-API13-SolverCore\LICENSE" Link="THIRD-PARTY-Craftimizer-LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <Reference Include="Newtonsoft.Json">
       <HintPath>$(DalamudLibPath)Newtonsoft.Json.dll</HintPath>
       <Private>false</Private>

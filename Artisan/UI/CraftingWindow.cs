@@ -138,7 +138,7 @@ namespace Artisan.UI
             if (CraftingProcessor.ActiveSolver)
             {
                 var text = $"正在使用：{CraftingProcessor.ActiveSolver.Name}";
-                if (CraftingProcessor.NextRec.Comment.Length > 0)
+                if (!string.IsNullOrEmpty(CraftingProcessor.NextRec.Comment))
                     text += $" ({CraftingProcessor.NextRec.Comment})";
                 ImGuiEx.TextWrapped(text.Replace("%", ""));
             }

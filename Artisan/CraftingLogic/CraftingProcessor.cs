@@ -8,6 +8,8 @@ using ECommons.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Artisan.CraftingLogic;
 
@@ -34,6 +36,11 @@ public static class CraftingProcessor
     private static Solver? _activeSolver; // solver for current or expected crafting session
     private static uint? _expectedRecipe; // non-null and equal to recipe id if we've requested start of a specific craft (with a specific solver) and are waiting for it to start
     private static Solver.Recommendation _nextRec;
+    private static CancellationTokenSource? _pendingRecommendationCancellation;
+    private static Task<Solver.Recommendation>? _pendingRecommendation;
+    private static Lumina.Excel.Sheets.Recipe _pendingRecipe;
+    private static CraftState? _pendingCraft;
+    private static StepState? _pendingStep;
 
     public static void Setup()
     {
@@ -43,6 +50,7 @@ public static class CraftingProcessor
         SolverDefinitions.Add(new MacroSolverDefinition());
         SolverDefinitions.Add(new ScriptSolverDefinition());
         SolverDefinitions.Add(new RaphaelSolverDefintion());
+        SolverDefinitions.Add(new CraftimizerSolverDefinition());
 
         Crafting.CraftStarted += OnCraftStarted;
         Crafting.CraftAdvanced += OnCraftAdvanced;
@@ -51,9 +59,43 @@ public static class CraftingProcessor
 
     public static void Dispose()
     {
+        CancelPendingRecommendation();
         Crafting.CraftStarted -= OnCraftStarted;
         Crafting.CraftAdvanced -= OnCraftAdvanced;
         Crafting.CraftFinished -= OnCraftFinished;
+    }
+
+    public static void Update()
+    {
+        var pending = _pendingRecommendation;
+        if (pending == null || !pending.IsCompleted)
+            return;
+
+        var recipe = _pendingRecipe;
+        var craft = _pendingCraft;
+        var step = _pendingStep;
+        _pendingRecommendation = null;
+        _pendingCraft = null;
+        _pendingStep = null;
+        _pendingRecommendationCancellation?.Dispose();
+        _pendingRecommendationCancellation = null;
+
+        if (pending.IsCanceled || craft == null || step == null || _activeSolver == null)
+            return;
+
+        Solver.Recommendation recommendation;
+        try
+        {
+            recommendation = pending.GetAwaiter().GetResult();
+        }
+        catch (Exception e)
+        {
+            Svc.Log.Error(e, "Asynchronous crafting solver failed");
+            SolverFailed?.Invoke(recipe, $"Asynchronous solver failed: {e.Message}");
+            return;
+        }
+
+        PublishRecommendation(recipe, craft, step, recommendation);
     }
 
     public static IEnumerable<ISolverDefinition.Desc> GetAvailableSolversForRecipe(CraftState craft, bool returnUnsupported, Type? skipSolver = null)
@@ -87,8 +129,8 @@ public static class CraftingProcessor
 
     public static ISolverDefinition.Desc GetSolverForRecipe(RecipeConfig? recipeConfig, CraftState craft)
     {
-        var configuredSolverType = recipeConfig?.SolverType ?? "";
-        var configuredSolverFlavour = recipeConfig?.SolverFlavour ?? 0;
+        var configuredSolverType = recipeConfig?.CurrentSolverType ?? "";
+        var configuredSolverFlavour = recipeConfig?.CurrentSolverFlavour ?? 0;
 
         var s = FindSolver(craft, configuredSolverType, configuredSolverFlavour);
         if (s != null)
@@ -148,11 +190,7 @@ public static class CraftingProcessor
 
         SolverStarted?.Invoke(recipe, ActiveSolver, craft, initialStep);
 
-        _nextRec = _activeSolver.Solve(craft, initialStep);
-        if (Simulator.CannotUseAction(craft, initialStep, _nextRec.Action, out string reason))
-            DuoLog.Error($"Unable to use {_nextRec.Action.NameOfAction()}: {reason}");
-        if (_nextRec.Action != Skills.None)
-            RecommendationReady?.Invoke(recipe, ActiveSolver, craft, initialStep, _nextRec);
+        RequestRecommendation(recipe, craft, initialStep);
     }
 
     private static void OnCraftAdvanced(Lumina.Excel.Sheets.Recipe recipe, CraftState craft, StepState step)
@@ -163,12 +201,7 @@ public static class CraftingProcessor
         if (_nextRec.Action != Skills.None && _nextRec.Action != step.PrevComboAction)
             Svc.Log.Warning($"Previous action was different from recommendation: recommended {_nextRec.Action}, used {step.PrevComboAction}");
 
-        _nextRec = _activeSolver.Solve(craft, step);
-        Svc.Log.Debug($"Next rec is: {_nextRec.Action}");
-        if (Simulator.CannotUseAction(craft, step, _nextRec.Action, out string reason))
-            DuoLog.Error($"Unable to use {_nextRec.Action.NameOfAction()}: {reason}");
-        if (_nextRec.Action != Skills.None)
-            RecommendationReady?.Invoke(recipe, ActiveSolver, craft, step, _nextRec);
+        RequestRecommendation(recipe, craft, step);
     }
 
     private static void OnCraftFinished(Lumina.Excel.Sheets.Recipe recipe, CraftState craft, StepState finalStep, bool cancelled)
@@ -180,8 +213,55 @@ public static class CraftingProcessor
             Svc.Log.Warning($"Previous action was different from recommendation: recommended {_nextRec.Action}, used {finalStep.PrevComboAction}");
 
         SolverFinished?.Invoke(recipe, ActiveSolver, craft, finalStep);
+        CancelPendingRecommendation();
         _activeSolver = null;
         ActiveSolver = new("");
         _nextRec = new();
+    }
+
+    private static void RequestRecommendation(Lumina.Excel.Sheets.Recipe recipe, CraftState craft, StepState step)
+    {
+        CancelPendingRecommendation();
+        _nextRec = new();
+
+        if (_activeSolver is IAsyncSolver asyncSolver)
+        {
+            _pendingRecommendationCancellation = new();
+            _pendingRecipe = recipe;
+            _pendingCraft = craft with { };
+            _pendingStep = step with { };
+            _pendingRecommendation = asyncSolver.SolveAsync(
+                _pendingCraft,
+                _pendingStep,
+                _pendingRecommendationCancellation.Token);
+            Svc.Log.Debug($"[CProc] Waiting for asynchronous recommendation at step {step.Index}");
+            return;
+        }
+
+        PublishRecommendation(recipe, craft, step, _activeSolver!.Solve(craft, step));
+    }
+
+    private static void PublishRecommendation(Lumina.Excel.Sheets.Recipe recipe, CraftState craft, StepState step, Solver.Recommendation recommendation)
+    {
+        _nextRec = recommendation;
+        Svc.Log.Debug($"Next rec is: {_nextRec.Action}");
+        if (Simulator.CannotUseAction(craft, step, _nextRec.Action, out string reason))
+        {
+            DuoLog.Error($"Unable to use {_nextRec.Action.NameOfAction()}: {reason}");
+            return;
+        }
+
+        if (_nextRec.Action != Skills.None)
+            RecommendationReady?.Invoke(recipe, ActiveSolver, craft, step, _nextRec);
+    }
+
+    private static void CancelPendingRecommendation()
+    {
+        _pendingRecommendationCancellation?.Cancel();
+        _pendingRecommendationCancellation?.Dispose();
+        _pendingRecommendationCancellation = null;
+        _pendingRecommendation = null;
+        _pendingCraft = null;
+        _pendingStep = null;
     }
 }

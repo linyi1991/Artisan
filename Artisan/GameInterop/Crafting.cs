@@ -199,7 +199,7 @@ public static unsafe class Crafting
                 res.CraftQualityMin3 = res.CraftQualityMin2;
                 res.CraftQualityMin2 = res.CraftQualityMin1;
             }
-        }
+    }
         else if (recipe.RequiredQuality > 0)
         {
             res.CraftQualityMin1 = res.CraftQualityMin2 = res.CraftQualityMin3 = res.CraftQualityMax = (int)recipe.RequiredQuality;
@@ -210,7 +210,7 @@ public static unsafe class Crafting
         }
 
         return res;
-    }
+}
 
     public static void Update()
     {
@@ -266,6 +266,8 @@ public static unsafe class Crafting
         {
             if (CurRecipe != null && CurStep != null)
                 CraftFinished?.Invoke(CurRecipe.Value, CurCraft, CurStep, true);
+            else if (IPC.IPC.StopCraftingRequest || CurCraft.IsCosmic)
+                Svc.Log.Debug("Crafting exited through the cosmic/external-control path; resetting incomplete state without firing CraftFinished.");
             else
                 Svc.Log.Warning("Crafting exited while recipe or step state was missing; resetting state without firing CraftFinished.");
             _predictedNextStep = null;
@@ -535,6 +537,8 @@ public static unsafe class Crafting
     private static Condition GetStepCondition(AddonSynthesis* synthWindow) => (Condition)synthWindow->AtkUnitBase.AtkValues[12].Int;
     public static int DelineationCount() => InventoryManager.Instance()->GetInventoryItemCount(28724);
     public static uint MaterialMiracleChargeCount() => MaterialMiracleCharges();
+    public static float MaterialMiracleRemainingSeconds() =>
+        Math.Max(0, GetStatus(Buffs.MaterialMiracle)?.RemainingTime ?? 0);
 
     private unsafe static uint MaterialMiracleCharges()
     {
@@ -711,7 +715,7 @@ public static unsafe class Crafting
                 if (_predictedNextStep.Progress != advancePayload->CurProgress)
                     Svc.Log.Error($"Prediction error: expected progress {advancePayload->CurProgress}, got {_predictedNextStep.Progress}");
                 if (_predictedNextStep.Quality != advancePayload->CurQuality)
-                    Svc.Log.Error($"Prediction error: expected quality {advancePayload->CurQuality}, got {_predictedNextStep.Quality}");
+                    LogQualityPredictionMismatch("quality", advancePayload->CurQuality, _predictedNextStep.Quality);
                 if (_predictedNextStep.Durability != advancePayload->CurDurability)
                     Svc.Log.Error($"Prediction error: expected durability {advancePayload->CurDurability}, got {_predictedNextStep.Durability}");
                 var predictedDeltaProgress = _predictedNextStep.PrevActionFailed ? 0 : Simulator.CalculateProgress(CurCraft!, CurStep!, _predictedNextStep.PrevComboAction);
@@ -720,7 +724,7 @@ public static unsafe class Crafting
                 if (predictedDeltaProgress != advancePayload->DeltaProgress)
                     Svc.Log.Error($"Prediction error: expected progress delta {advancePayload->DeltaProgress}, got {predictedDeltaProgress}");
                 if (predictedDeltaQuality != advancePayload->DeltaQuality)
-                    Svc.Log.Error($"Prediction error: expected quality delta {advancePayload->DeltaQuality}, got {predictedDeltaQuality}");
+                    LogQualityPredictionMismatch("quality delta", advancePayload->DeltaQuality, predictedDeltaQuality);
                 if (predictedDeltaDurability != advancePayload->DeltaDurability)
                     Svc.Log.Error($"Prediction error: expected durability delta {advancePayload->DeltaDurability}, got {predictedDeltaDurability}");
                 if ((_predictedNextStep.Progress >= CurCraft!.CraftProgress || _predictedNextStep.Durability <= 0) != complete)
@@ -758,5 +762,18 @@ public static unsafe class Crafting
         }
         _craftingEventHandlerUpdateHook.Original(self, a2, a3, payload);
         Svc.Log.Verbose("CEH hook exit");
+    }
+
+    private static void LogQualityPredictionMismatch(string field, long gameValue, long simulatedValue)
+    {
+        // API13/TW cosmic recipes can differ by one point because the live
+        // client and the local simulator round quality modifiers differently.
+        // The packet is authoritative and is applied immediately below, so a
+        // one-point variance is expected telemetry rather than an execution
+        // failure. Preserve error-level diagnostics for larger divergences.
+        if (Math.Abs(gameValue - simulatedValue) <= 1)
+            Svc.Log.Debug($"Prediction rounding variance: {field} game={gameValue}, simulated={simulatedValue}; resynchronizing to game state");
+        else
+            Svc.Log.Error($"Prediction error: expected {field} {gameValue}, got {simulatedValue}");
     }
 }

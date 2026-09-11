@@ -25,6 +25,13 @@ public class RecipeConfig
     public const uint Default = 0;
     public const uint Disabled = 1;
 
+    [NonSerialized]
+    public string TempSolverType = "";
+    [NonSerialized]
+    public int TempSolverFlavour = -1;
+
+    public string CurrentSolverType => TempSolverType.Length > 0 ? TempSolverType : SolverType;
+    public int CurrentSolverFlavour => TempSolverFlavour >= 0 ? TempSolverFlavour : SolverFlavour;
 
     public string SolverType = ""; // TODO: ideally it should be a Type?, but that causes problems for serialization
     public int SolverFlavour;
@@ -63,6 +70,7 @@ public class RecipeConfig
         "Macro Solver" => "宏求解器",
         "Raphael Solver" => "Raphael 求解器",
         "Raphael Recipe Solver" => "Raphael 配方求解器",
+        "Craftimizer Recipe Solver" => "Craftimizer 配方求解器",
         _ => name,
     };
 

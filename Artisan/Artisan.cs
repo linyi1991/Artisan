@@ -204,6 +204,7 @@ public unsafe class Artisan : IDalamudPlugin
 
         CharacterInfo.UpdateCharaStats();
         Crafting.Update();
+        CraftingProcessor.Update();
         SimpleTweaks.DisableImprovedLogTweak();
         PreCrafting.Update();
         Endurance.Update();

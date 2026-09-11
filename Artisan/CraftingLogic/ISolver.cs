@@ -1,4 +1,6 @@
 ﻿using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Skills = Artisan.RawInformation.Character.Skills;
 
 namespace Artisan.CraftingLogic;
@@ -25,6 +27,14 @@ public abstract class Solver
 
     public virtual Solver Clone() => (Solver)MemberwiseClone(); // shallow copy by default
     public abstract Recommendation Solve(CraftState craft, StepState step); // note that this function potentially mutates state!
+}
+
+// Optional bridge for solvers that calculate away from Dalamud's framework
+// thread. CraftingProcessor owns cancellation and publishes the result back on
+// the framework thread, so Artisan remains the only component executing skills.
+public interface IAsyncSolver
+{
+    Task<Solver.Recommendation> SolveAsync(CraftState craft, StepState step, CancellationToken cancellationToken);
 }
 
 public interface ICraftValidator

@@ -11,6 +11,7 @@ using ECommons.ExcelServices;
 using ECommons.Logging;
 using OtterGui;
 using System;
+using System.Linq;
 
 namespace Artisan.IPC
 {
@@ -53,6 +54,8 @@ namespace Artisan.IPC
             Svc.PluginInterface.GetIpcProvider<ushort, int, bool, object>("Artisan.PrepareAndCraft").RegisterAction(PrepareAndCraft);
             Svc.PluginInterface.GetIpcProvider<ushort, string>("Artisan.GetHqPrediction").RegisterFunc(GetHqPrediction);
             Svc.PluginInterface.GetIpcProvider<bool>("Artisan.IsBusy").RegisterFunc(IsBusy);
+            Svc.PluginInterface.GetIpcProvider<uint, string, bool, object>("Artisan.ChangeSolver").RegisterAction(ChangeSolver);
+            Svc.PluginInterface.GetIpcProvider<uint, object>("Artisan.SetTempSolverBackToNormal").RegisterAction(SetTempSolverBackToNormal);
         }
 
         internal static void Dispose()
@@ -70,7 +73,9 @@ namespace Artisan.IPC
             Svc.PluginInterface.GetIpcProvider<ushort, int, object>("Artisan.CraftItem").UnregisterAction();
             Svc.PluginInterface.GetIpcProvider<ushort, int, bool, object>("Artisan.PrepareAndCraft").UnregisterAction();
             Svc.PluginInterface.GetIpcProvider<ushort, string>("Artisan.GetHqPrediction").UnregisterFunc();
-            Svc.PluginInterface.GetIpcProvider<ushort, int, object>("Artisan.IsBusy").UnregisterFunc();
+            Svc.PluginInterface.GetIpcProvider<bool>("Artisan.IsBusy").UnregisterFunc();
+            Svc.PluginInterface.GetIpcProvider<uint, string, bool, object>("Artisan.ChangeSolver").UnregisterAction();
+            Svc.PluginInterface.GetIpcProvider<uint, object>("Artisan.SetTempSolverBackToNormal").UnregisterAction();
         }
 
         static bool GetEnduranceStatus()
@@ -135,6 +140,48 @@ namespace Artisan.IPC
             {
                 throw new Exception("RecipeID not found.");
             }
+        }
+
+        public static void ChangeSolver(uint recipeId, string solverName, bool temporary)
+        {
+            if (!LuminaSheets.RecipeSheet.TryGetValue(recipeId, out var recipe))
+                throw new ArgumentException($"Recipe {recipeId} was not found.", nameof(recipeId));
+
+            if (!P.Config.RecipeConfigs.TryGetValue(recipeId, out var config))
+                config = new();
+            var job = (Job)((uint)Job.CRP + recipe.CraftType.RowId);
+            var stats = CharacterStats.GetBaseStatsForClassHeuristic(job);
+            var craft = Crafting.BuildCraftStateForRecipe(stats, job, recipe);
+            var solver = CraftingProcessor.GetAvailableSolversForRecipe(craft, false)
+                .FirstOrDefault(candidate => candidate.Name == solverName);
+            if (solver == default)
+                throw new ArgumentException($"Solver '{solverName}' is not available for recipe {recipeId}.", nameof(solverName));
+
+            if (temporary)
+            {
+                config.TempSolverType = solver.Def.GetType().FullName!;
+                config.TempSolverFlavour = solver.Flavour;
+            }
+            else
+            {
+                config.SolverType = solver.Def.GetType().FullName!;
+                config.SolverFlavour = solver.Flavour;
+            }
+
+            P.Config.RecipeConfigs[recipeId] = config;
+            if (!temporary)
+                P.Config.Save();
+            Svc.Log.Information($"IPC selected '{solver.Name}' for recipe {recipeId} (temporary={temporary})");
+        }
+
+        public static void SetTempSolverBackToNormal(uint recipeId)
+        {
+            if (!P.Config.RecipeConfigs.TryGetValue(recipeId, out var config))
+                return;
+
+            config.TempSolverType = "";
+            config.TempSolverFlavour = -1;
+            Svc.Log.Information($"IPC restored the configured solver for recipe {recipeId}");
         }
 
         /// <summary>

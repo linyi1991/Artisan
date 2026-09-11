@@ -279,9 +279,15 @@ public unsafe static class PreCrafting
             if (int.TryParse(addon->SelectedRecipeQuantityCraftableFromMaterialsInInventory->NodeText.ToString(), out int output))
                 return output;
         }
-        if (TryGetAddonByName<AtkUnitBase>("WKSRecipeNotebook", out var cosmic) && cosmic->UldManager.NodeList[24] != null)
+        // The notebook can be rebuilt while ICE reopens it between cosmic crafts.
+        // Indexing NodeList during that transition races a temporarily null/short
+        // node array. Resolve the stable text-node ID used upstream instead; a
+        // missing node returns -1 so Endurance waits rather than ending Craft X.
+        if (TryGetAddonByName<AtkUnitBase>("WKSRecipeNotebook", out var cosmic))
         {
-            if (int.TryParse(cosmic->UldManager.NodeList[24]->GetAsAtkTextNode()->NodeText.ToString(), out int output))
+            var craftableNode = cosmic->GetTextNodeById(34);
+            if (craftableNode != null
+                && int.TryParse(craftableNode->NodeText.ToString(), out int output))
                 return output;
         }
         return -1;
