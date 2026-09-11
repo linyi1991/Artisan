@@ -1,4 +1,4 @@
-﻿using Artisan.GameInterop;
+using Artisan.GameInterop;
 using Artisan.RawInformation.Character;
 using ECommons.DalamudServices;
 using ECommons.UIHelpers.AddonMasterImplementations;
@@ -97,7 +97,7 @@ namespace Artisan.RawInformation
         public unsafe static bool ExtractMateriaTask(bool option)
         {
             if (!CharacterInfo.MateriaExtractionUnlocked()) return true;
-            if (CharacterOther.GetInventoryFreeSlotCount() == 0) return true;
+            if (CharacterOther.GetInventoryFreeSlotCount() == 0 && IsSpiritbondReadyAny()) return true;
 
             if (option)
             {
@@ -154,21 +154,9 @@ namespace Artisan.RawInformation
                         if (materalizeWindow == null)
                             return;
 
-                        var list = (AtkComponentList*)materalizeWindow->UldManager.NodeList[5];
-
-                        var values = stackalloc AtkValue[2];
-                        values[0] = new()
-                        {
-                            Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.Int,
-                            Int = 2,
-                        };
-                        values[1] = new()
-                        {
-                            Type = FFXIVClientStructs.FFXIV.Component.GUI.ValueType.UInt,
-                            UInt = 0,
-                        };
-
-                        materalizeWindow->FireCallback(1, values);
+                        if (!IsAddonReady(materalizeWindow)) return;
+                        // Event id AND item index are required by Materialize.
+                        ECommons.Automation.Callback.Fire(materalizeWindow, true, 2, 0);
 
 
 

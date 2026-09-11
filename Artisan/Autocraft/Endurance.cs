@@ -1,4 +1,4 @@
-﻿using Artisan.CraftingLists;
+using Artisan.CraftingLists;
 using Artisan.CraftingLogic.Solvers;
 using Artisan.GameInterop;
 using Artisan.RawInformation;
@@ -76,6 +76,7 @@ namespace Artisan.Autocraft
 
         internal static void ToggleEndurance(bool enable)
         {
+            _materiaDeadline = 0;
             if (RecipeID > 0 && enable)
             {
                 Enable = enable;
@@ -305,15 +306,56 @@ namespace Artisan.Autocraft
             }
         }
 
+        private static long _materiaDeadline;
+
+        // Manual Craft X only. Never take maintenance ownership from IPC or lists.
+        internal static bool ServiceManualMateria()
+        {
+            if (!Enable || !P.Config.CraftingX || P.Config.CraftX <= 0 || !P.Config.Materia ||
+                IPCOverride || CraftingListUI.Processing || Crafting.CurCraft?.IsCosmic == true)
+            {
+                _materiaDeadline = 0;
+                return false;
+            }
+            if (_materiaDeadline == 0)
+            {
+                if (!Spiritbond.IsSpiritbondReadyAny()) return false;
+                if (Crafting.CurState is not Crafting.State.IdleNormal and not Crafting.State.IdleBetween)
+                    return true; // Let the active craft finish; do not cancel its count event.
+                _materiaDeadline = Environment.TickCount64 + 120000;
+                P.TM.Abort();
+                PreCrafting.Tasks.Clear();
+                Svc.Log.Information($"[Manual Craft X materia] Pausing; remaining={P.Config.CraftX}");
+            }
+            string failure = !CharacterInfo.MateriaExtractionUnlocked() ? "尚未解鎖魔晶石提取" :
+                Spiritbond.IsSpiritbondReadyAny() && CharacterOther.GetInventoryFreeSlotCount() == 0 ? "背包沒有空位" :
+                Environment.TickCount64 >= _materiaDeadline ? "提取流程逾時（120 秒）" : "";
+            if (failure.Length > 0)
+            {
+                P.TM.Abort();
+                ToggleEndurance(false);
+                _materiaDeadline = 0;
+                DuoLog.Error($"[Manual Craft X materia] {failure}，已停止連續製作；剩餘 {P.Config.CraftX} 次。處理後可手動重新開始。");
+                return true;
+            }
+            if (PreCrafting.TaskExitCraft() != PreCrafting.TaskResult.Done) return true;
+            if (!Spiritbond.ExtractMateriaTask(true)) return true;
+            _materiaDeadline = 0;
+            Svc.Log.Information($"[Manual Craft X materia] Extraction completed; resuming remaining={P.Config.CraftX}");
+            return true; // Re-select recipe on the next update, never use stale ingredient tasks.
+        }
+
         public static void Update()
         {
-            if (!Enable) return;
+            if (!Enable) { _materiaDeadline = 0; return; }
             var needToRepair = P.Config.Repair && RepairManager.GetMinEquippedPercent() < P.Config.RepairPercent && (RepairManager.CanRepairAny() || RepairManager.RepairNPCNearby(out _));
             if ((Crafting.CurState == Crafting.State.QuickCraft && Crafting.QuickSynthCompleted) || needToRepair ||
                 (P.Config.Materia && Spiritbond.IsSpiritbondReadyAny() && CharacterInfo.MateriaExtractionUnlocked()))
             {
                 Operations.CloseQuickSynthWindow();
             }
+
+            if (ServiceManualMateria()) return;
 
             if (!P.TM.IsBusy && Crafting.CurState is Crafting.State.IdleNormal or Crafting.State.IdleBetween)
             {
@@ -409,7 +451,7 @@ namespace Artisan.Autocraft
 
                         if (type == PreCrafting.CraftType.Quick)
                         {
-                            P.TM.Enqueue(() => Operations.QuickSynthItem(P.Config.CraftingX ? P.Config.CraftX : 99), "EnduranceQSStart");
+                            P.TM.Enqueue(() => { if (Enable && !ServiceManualMateria()) Operations.QuickSynthItem(P.Config.CraftingX ? P.Config.CraftX : 99); }, "EnduranceQSStart");
                             P.TM.Enqueue(() => Crafting.CurState is Crafting.State.WaitStart, 5000, "EnduranceQSWaitStart");
                         }
                         else if (type == PreCrafting.CraftType.Normal)
@@ -421,7 +463,7 @@ namespace Artisan.Autocraft
                             else
                                 P.TM.Enqueue(() => CraftingListFunctions.SetIngredients(SetIngredients), "EnduranceSetIngredientsLayout");
 
-                            P.TM.Enqueue(() => Operations.RepeatActualCraft(), 500, "EnduranceNormalStart");
+                            P.TM.Enqueue(() => !Enable || ServiceManualMateria() || Operations.RepeatActualCraft(), 500, "EnduranceNormalStart");
                             P.TM.Enqueue(() => Crafting.CurState is Crafting.State.WaitStart, 500, "EnduranceNormalWaitStart");
                             P.TM.Enqueue(() =>
                             {
