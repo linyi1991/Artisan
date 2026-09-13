@@ -1,6 +1,6 @@
 [submodule "PunishLib"]
 	path = PunishLib
-	url = https://github.com/PunishXIV/PunishLib.git
+	url = https://github.com/linyi1991/PunishLib.git
 [submodule "OtterGui"]
 	path = OtterGui
 	url = https://github.com/linyi1991/OtterGui.git

@@ -15,7 +15,8 @@ Repo Url:
 
 ## API13 fork synchronization
 
-This fork pins `OtterGui` at `dd3573461356dbd45cc1750a2cd16d5c1f51da21`.
-The original upstream no longer advertises that commit, so the nested submodule
-uses `linyi1991/OtterGui` branch `api13-artisan-pin`. This keeps recursive clones
-of the API13/TW integration reproducible without changing Artisan runtime code.
+This fork pins `OtterGui` at `dd3573461356dbd45cc1750a2cd16d5c1f51da21`
+and `PunishLib` at `e200256e1d997b2513358af883a29b6f1101fdb2`.
+The original upstreams no longer advertise those commits, so both nested
+submodules use `linyi1991` forks with branch `api13-artisan-pin`. This keeps
+recursive clones reproducible without changing Artisan runtime code.
