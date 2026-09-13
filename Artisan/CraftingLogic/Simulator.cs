@@ -321,7 +321,12 @@ public static class Simulator
         return false;
     }
 
-    public static bool SkipUpdates(Skills action) => action is Skills.CarefulObservation or Skills.FinalAppraisal or Skills.HeartAndSoul or Skills.MaterialMiracle;
+    // Quick Innovation is a specialist action that applies Innovation without
+    // advancing the craft step.  It must not tick Manipulation or the other
+    // timed effects either.  Treating it as a normal step desynchronizes the
+    // simulator from the API13/TW client and can make Craftimizer abandon a
+    // still-valid cosmic craft.
+    public static bool SkipUpdates(Skills action) => action is Skills.CarefulObservation or Skills.FinalAppraisal or Skills.HeartAndSoul or Skills.QuickInnovation or Skills.MaterialMiracle;
     public static bool ConsumeHeartAndSoul(Skills action) => action is Skills.IntensiveSynthesis or Skills.PreciseTouch or Skills.TricksOfTrade;
 
     public static double GetSuccessRate(StepState step, Skills action)

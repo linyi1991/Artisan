@@ -25,7 +25,7 @@ public sealed class CraftimizerSolverDefinition : ISolverDefinition
         // Priority 0 keeps every existing Artisan default unchanged. ICE or the
         // recipe UI must explicitly select this solver.
         yield return new(this, 0, 0, "Craftimizer Recipe Solver",
-            craft.ConditionFlags == 0 ? "Recipe has no usable condition data" : "");
+            craft.ConditionFlags == 0 ? "配方沒有可用的製作狀態資料" : "");
     }
 
     public ArtisanSolver Create(CraftState craft, int flavour) => new CraftimizerSolver(craft);
@@ -58,7 +58,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
     // Offline Artisan simulations are synchronous. Use the existing safe
     // Artisan solver there; live crafting is routed through SolveAsync.
     public override Recommendation Solve(CraftState craft, StepState step) =>
-        _fallback.Solve(craft, step) with { Comment = "Craftimizer preview fallback" };
+        _fallback.Solve(craft, step) with { Comment = "預覽模擬使用 Artisan 安全備援" };
 
     public Task<Recommendation> SolveAsync(CraftState craft, StepState step, CancellationToken cancellationToken)
     {
@@ -77,14 +77,14 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         if (_fallbackOnlyReason != null)
             return Task.FromResult(artisanRecommendation with
             {
-                Comment = $"Craftimizer disabled for this craft: {_fallbackOnlyReason}",
+                Comment = $"本次製作已停用 Craftimizer，改用 Artisan 備援；原因：{LocalizeFallbackReason(_fallbackOnlyReason)}",
             });
 
         if (craft.MissionHasMaterialMiracle && P.Config.UseMaterialMiracle &&
             artisanRecommendation.Action == Skills.MaterialMiracle)
         {
             Svc.Log.Debug($"[Craftimizer Solver] Step {step.Index}: Artisan selected Material Miracle; preserving the Cosmic duty action");
-            return Task.FromResult(artisanRecommendation with { Comment = "Artisan Cosmic bridge: Material Miracle" });
+            return Task.FromResult(artisanRecommendation with { Comment = "宇宙製作橋接：保留「素材奇蹟」技能" });
         }
 
         var materialMiracleSeconds = step.MaterialMiracleActive
@@ -135,7 +135,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
                 return FallbackForCraft(step, artisanRecommendation, $"recommended unusable action {action}: {reason}");
 
             Svc.Log.Debug($"[Craftimizer Solver] Step {step.Index}: {action} mapped to {mapped} in {stopwatch.ElapsedMilliseconds} ms");
-            return new(mapped, $"Craftimizer 2.8 ({action}, {stopwatch.ElapsedMilliseconds} ms)");
+            return new(mapped, $"Craftimizer 2.8；計算耗時 {stopwatch.ElapsedMilliseconds} 毫秒");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -153,7 +153,23 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         _fallbackOnlyReason ??= reason;
         Svc.Log.Warning(
             $"[Craftimizer Solver] Step {step.Index}: {reason}; disabling Craftimizer for the remainder of this craft and using Artisan fallback");
-        return artisanRecommendation with { Comment = $"Craftimizer fallback for craft: {reason}" };
+        return artisanRecommendation with
+        {
+            Comment = $"Craftimizer 無法繼續，已改用 Artisan 備援；原因：{LocalizeFallbackReason(reason)}",
+        };
+    }
+
+    private static string LocalizeFallbackReason(string reason)
+    {
+        if (reason == "timed out")
+            return "計算逾時";
+        if (reason == "returned no solution")
+            return "找不到可行解";
+        if (reason.StartsWith("could not map action ", StringComparison.Ordinal))
+            return "無法對應建議技能";
+        if (reason.StartsWith("recommended unusable action ", StringComparison.Ordinal))
+            return "建議技能目前無法使用";
+        return "計算發生錯誤";
     }
 
     private ActionProc GetComboState(StepState step)

@@ -74,6 +74,44 @@ public class RecipeConfig
         _ => name,
     };
 
+    public static string LocalizeSolverComment(string comment)
+    {
+        if (string.IsNullOrWhiteSpace(comment))
+            return "求解器已產生下一步建議";
+        if (comment.Any(c => c > 127))
+            return comment;
+
+        if (comment == "Craftimizer preview fallback")
+            return "預覽模擬使用 Artisan 安全備援";
+        if (comment == "Artisan Cosmic bridge: Material Miracle")
+            return "宇宙製作橋接：保留「素材奇蹟」技能";
+        if (comment.StartsWith("Craftimizer disabled for this craft: ", StringComparison.Ordinal))
+            return "本次製作已停用 Craftimizer，改用 Artisan 備援；原因：" +
+                   LocalizeCraftimizerReason(comment["Craftimizer disabled for this craft: ".Length..]);
+        if (comment.StartsWith("Craftimizer fallback for craft: ", StringComparison.Ordinal))
+            return "Craftimizer 無法繼續，已改用 Artisan 備援；原因：" +
+                   LocalizeCraftimizerReason(comment["Craftimizer fallback for craft: ".Length..]);
+        if (comment.StartsWith("Craftimizer 2.8", StringComparison.Ordinal))
+            return comment;
+
+        // Other Artisan solvers often return internal English branch labels.
+        // Keep the player-facing panel readable without changing solver logic.
+        return "求解器已產生下一步建議";
+    }
+
+    private static string LocalizeCraftimizerReason(string reason)
+    {
+        if (reason == "timed out")
+            return "計算逾時";
+        if (reason == "returned no solution")
+            return "找不到可行解";
+        if (reason.StartsWith("could not map action ", StringComparison.Ordinal))
+            return "無法對應建議技能";
+        if (reason.StartsWith("recommended unusable action ", StringComparison.Ordinal))
+            return "建議技能目前無法使用";
+        return "計算發生錯誤";
+    }
+
 
 
     public bool Draw(uint recipeId)

@@ -1,5 +1,18 @@
 # Artisan + Craftimizer Solver integration (API13/TW)
 
+## 4.0.3.123-api13-tw-craftimizer7-quickinno
+
+- 修正 `Quick Innovation`（快速改革）在 API13/TW 製作模擬器中被錯誤視為推進回合的問題。
+- 快速改革現在不再錯誤遞減 Manipulation 等計時效果，也不會產生不存在的耐久回復，避免 Craftimizer 與遊戲狀態不同步。
+- 保留 4.0.3.122 的繁中求解狀態面板、Craftimizer IPC 合約及 Artisan 安全備援。
+- Dalamud API13 / .NET 9 Release 建置：0 errors；實機已確認後續宇宙配方可完成，但特定配方無解仍由 ICE 任務保護處理。
+
+## 4.0.3.122-api13-tw-craftimizer6-ui
+
+- 繁中化製作狀態面板的求解器名稱、推薦技能、計算耗時及失敗／備援原因。
+- 內部求解器名稱與 IPC 合約維持 `Craftimizer Recipe Solver`，不影響 ICE 自動選用。
+- Dalamud API13 / .NET 9 Release 建置：0 errors。
+
 ## Architecture
 
 - Artisan remains the only workflow and action executor. It owns recipe selection,

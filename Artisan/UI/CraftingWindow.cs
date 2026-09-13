@@ -137,9 +137,11 @@ namespace Artisan.UI
 
             if (CraftingProcessor.ActiveSolver)
             {
-                var text = $"正在使用：{CraftingProcessor.ActiveSolver.Name}";
+                var text = $"正在使用：{RecipeConfig.LocalizeSolverName(CraftingProcessor.ActiveSolver.Name)}";
+                if (CraftingProcessor.NextRec.Action != Skills.None)
+                    text += $"\n推薦技能：{CraftingProcessor.NextRec.Action.NameOfAction()}";
                 if (!string.IsNullOrEmpty(CraftingProcessor.NextRec.Comment))
-                    text += $" ({CraftingProcessor.NextRec.Comment})";
+                    text += $"\n求解資訊：{RecipeConfig.LocalizeSolverComment(CraftingProcessor.NextRec.Comment)}";
                 ImGuiEx.TextWrapped(text.Replace("%", ""));
             }
 
