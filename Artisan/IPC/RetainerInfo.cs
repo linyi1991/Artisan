@@ -448,7 +448,8 @@ namespace Artisan.IPC
             return true;
         }
 
-        public static void RestockFromRetainers(NewCraftingList list)
+        public static unsafe void RestockFromRetainers(NewCraftingList list,
+            IReadOnlyDictionary<uint, int>? preferredHqTotals = null)
         {
             Dictionary<int, int> requiredItems = new();
             Dictionary<uint, int> materialList = new();
@@ -472,6 +473,30 @@ namespace Artisan.IPC
 
                 //Refresh retainer cache if empty
                 GetRetainerItemCount(material.Key);
+            }
+
+            // HQ-aware Allagan requests must retrieve the HQ stacks used by
+            // preflight even when the bags already contain enough NQ items.
+            // Otherwise the recipe window would start at a different quality
+            // than the simulation. The requested total is capped by the plan.
+            if (preferredHqTotals != null)
+            {
+                var inventory = InventoryManager.Instance();
+                foreach (var preferred in preferredHqTotals)
+                {
+                    var characterHq = inventory == null
+                        ? 0
+                        : inventory->GetInventoryItemCount(preferred.Key, true, false, false);
+                    var hqToRetrieve = Math.Max(0, preferred.Value - characterHq);
+                    if (hqToRetrieve == 0)
+                        continue;
+
+                    var key = checked((int)preferred.Key);
+                    requiredItems[key] = Math.Max(requiredItems.GetValueOrDefault(key), hqToRetrieve);
+                    Svc.Log.Information(
+                        $"[Allagan HQ Materials] Will retrieve {hqToRetrieve} HQ of item {preferred.Key} " +
+                        $"even if NQ stock already covers the recipe total");
+                }
             }
 
             if (RetainerData.SelectMany(x => x.Value).Any(x => requiredItems.Any(y => y.Key == x.Value.ItemId)))

@@ -1,6 +1,7 @@
 ﻿using Artisan.Autocraft;
 using Artisan.GameInterop;
 using Artisan.GameInterop.CSExt;
+using ArtisanIpc = Artisan.IPC.IPC;
 using Artisan.RawInformation;
 using Artisan.RawInformation.Character;
 using Dalamud.Game.ClientState.Conditions;
@@ -493,6 +494,13 @@ namespace Artisan.CraftingLists
 
                 return true;
             }
+
+            // Allagan's HQ-aware bridge recalculates the next craft from the
+            // HQ stacks that are actually in the character bags. This consumes
+            // HQ first; after a stack is exhausted the next craft naturally
+            // receives a new HQ/NQ assignment instead of replaying stale input.
+            if (setIngredients == null && ArtisanIpc.TryGetAllaganIngredientPlan(recipe->RecipeId, out var allaganPlan))
+                setIngredients = allaganPlan;
 
             if (TryGetAddonByName<AddonRecipeNote>("RecipeNote", out var addon) &&
                 addon->AtkUnitBase.IsVisible &&

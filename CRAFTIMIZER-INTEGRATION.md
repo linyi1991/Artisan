@@ -1,5 +1,14 @@
 # Artisan + Craftimizer Solver integration (API13/TW)
 
+## 4.0.3.132-api13-tw-craftimizer15-hq-segment-parity
+
+- AllaganTools 的明確「模擬製作」會依指定數量讀取角色背包與（選用時）僱員 HQ 庫存，逐次配置「目前能放入的最大 HQ 材料」，並把連續相同配料合併成區段。例如前 5 次全 HQ、第 6 次 HQ/NQ 混合、其後全 NQ，只形成三個區段，不會對 999 次製作執行 999 次求解。
+- 預演對每一種不同的起始品質只呼叫一次 Artisan 模擬器面板所使用的同步求解路徑。不同 HQ 槽位配置若換算為相同起始品質，製作狀態等價並共用同一結果；所有區段都通過 HQ／收藏品門檻才允許大量製作。
+- 實際製作每次打開配方時，會重新讀取角色背包剩餘 HQ 數量並優先放入 HQ；HQ 耗盡或配比改變後，下次製作自然採用新的 HQ/NQ 配料，不重播過期的固定配料。
+- 僱員有 HQ 時，即使角色背包的 NQ 總數已足夠，也會依預演需要取回相應 HQ 數量，避免預演品質與實際起始品質不同。
+- 預演工作仍為單一序列化背景工作；完成／失敗後的 Dalamud 訊息與清單操作一律切回 framework thread，避免背景執行緒碰觸 UI／插件狀態。
+- 保留目標職業裝備、指定食物／藥水的預先套用，並沿用 4.0.3.131 的自動切職與 4.0.3.129 的大量製作自動維修設定。
+
 ## 4.0.3.131-api13-tw-craftimizer14-consumable-preflight
 
 - 預演日誌與結果現在同時列出基礎裝備能力、指定食物／藥水及預先套用後能力，明確證明人物尚未實際吃食藥時也會先用指定效果模擬。
@@ -114,23 +123,26 @@
 
 ## AllaganTools contract
 
-- `Artisan.StartCraftimizerHqPrediction(ushort) -> string` starts one bounded,
-  background, zero-initial-quality simulation and returns `PENDING|...`.
-- `Artisan.GetCraftimizerHqPrediction(ushort) -> string` returns
-  `IDLE|...`, `PENDING|...`, `SAFE|...`, or `BLOCK|...`.
-- `Artisan.PrepareAndCraftWithCraftimizer(ushort, int, bool)` repeats the
-  one-item preflight and only then retrieves retainer materials and starts the
-  requested list. The `amount` never multiplies preview jobs.
-- Legacy `Artisan.GetHqPrediction` and `Artisan.PrepareAndCraft` remain for
-  existing callers, but are not the new AllaganTools primary path.
+- `Artisan.StartCraftimizerHqPredictionWithInventory(ushort, int, bool) -> string`
+  starts one serialized background preflight for the requested craft count and
+  optional retainer inventory. It returns `PENDING|...` immediately.
+- `Artisan.GetCraftimizerHqPredictionWithInventory(ushort, int, bool) -> string`
+  returns `IDLE|...`, `PENDING|...`, `SAFE|...`, or `BLOCK|...`; quantity and
+  retainer mode must still match the cached request.
+- `Artisan.PrepareAndCraftWithCraftimizerWithInventory(ushort, int, bool, bool)`
+  reuses the matching successful preflight, retrieves planned HQ materials,
+  creates the requested list, and lets Artisan auto-switch to the recipe job.
+- The legacy zero-quality and three-argument endpoints remain registered for
+  existing callers, but the paired AllaganTools build uses the inventory-aware
+  endpoints above.
 
 ## Provenance and verification
 
 - Upstream solver source: Craftimizer tag `2.11.0.2`, commit
   `3b07695eb0636204d61b066dcca4b770d184ea2d` (MIT).
 - API13/net9 backport: tag `2.11.0.2-api13-cosmic2`, commit `d667332`.
-- Artisan build: `4.0.3.131-api13-tw-craftimizer14-consumable-preflight` (commit recorded by the release update).
-- AllaganTools caller: `13.1.20.0`, commit `702a280`.
+- Artisan build: `4.0.3.132-api13-tw-craftimizer15-hq-segment-parity` (commit recorded by the release update).
+- AllaganTools caller: `13.1.21`, commit recorded by the release update.
 - Paired ICE: `0.0.0.705-api13-tw40`, Dalamud API 13, net9.
 - The adapter contains the 2.11 solver/simulator core, not the standalone
   official Craftimizer Dalamud UI or action executor.
