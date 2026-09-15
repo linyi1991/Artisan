@@ -40,6 +40,7 @@ public sealed class CraftimizerSolverDefinition : ISolverDefinition
 public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
 {
     private static readonly TimeSpan RecommendationTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(5);
     private readonly ArtisanSolver _fallback;
     private readonly CraftState _initialCraft;
     private int _lastObservedStepIndex;
@@ -99,6 +100,66 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         return Task.Run(
             () => CalculateRecommendation(craft, step, inputState, artisanRecommendation, cancellationToken),
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Produces one complete, bounded preview rotation with a single Craftimizer
+    /// core invocation. This is deliberately separate from live crafting, where
+    /// the solver recalculates after each action using the current game state.
+    /// </summary>
+    public Task<IReadOnlyList<Skills>?> SolvePreviewPlanAsync(
+        CraftState craft,
+        StepState step,
+        CancellationToken cancellationToken) =>
+        Task.Run(() => CalculatePreviewPlanAsync(craft, step, cancellationToken), cancellationToken);
+
+    private async Task<IReadOnlyList<Skills>?> CalculatePreviewPlanAsync(
+        CraftState craft,
+        StepState step,
+        CancellationToken cancellationToken)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(PreviewTimeout);
+
+        var inputState = BuildSimulationState(craft, step, 0, ActionProc.None);
+        var config = CreatePreviewSolverConfig(craft, inputState);
+        using var solver = new CraftimizerCoreSolver(config, inputState) { Token = timeout.Token };
+        solver.OnLog += message => Svc.Log.Verbose($"[Craftimizer Preview] {message}");
+        solver.OnWarn += message => Svc.Log.Warning($"[Craftimizer Preview] {message}");
+
+        try
+        {
+            Svc.Log.Information(
+                $"[Craftimizer Preview] Starting one bounded solve: maxTime={config.MaxTimeMs}ms, " +
+                $"threads={config.MaxThreadCount}, maxSteps={config.MaxStepCount}");
+            solver.Start();
+            var solution = await solver.GetSafeTask().ConfigureAwait(false);
+            if (solution == null || solution.Value.Actions.Count == 0)
+                return null;
+
+            var mapped = new List<Skills>(solution.Value.Actions.Count);
+            foreach (var action in solution.Value.Actions)
+            {
+                var skill = MapAction(action);
+                if (skill == Skills.None)
+                {
+                    Svc.Log.Warning($"[Craftimizer Preview] Could not map preview action {action}");
+                    return null;
+                }
+                mapped.Add(skill);
+            }
+
+            Svc.Log.Information(
+                $"[Craftimizer Preview] Completed one bounded solve in {stopwatch.ElapsedMilliseconds}ms " +
+                $"with {mapped.Count} actions");
+            return mapped;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            Svc.Log.Warning($"[Craftimizer Preview] Timed out after {stopwatch.ElapsedMilliseconds}ms");
+            return null;
+        }
     }
 
     private async Task<Recommendation> CalculateRecommendation(
@@ -222,6 +283,36 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             // MaxStepCount is an absolute action-count ceiling. The first
             // prototype incorrectly kept it at 40 even when resuming at step
             // 30+, making valid Cosmic solutions mathematically unreachable.
+            MaxStepCount = inputState.ActionCount + 48,
+            ActionPool = pool,
+            StrictActions = true,
+        };
+
+        return craft.Specialist ? config : config.FilterSpecialistActions();
+    }
+
+    private static CraftimizerSolverConfig CreatePreviewSolverConfig(
+        CraftState craft,
+        in SimulationState inputState)
+    {
+        var pool = CraftimizerSolverConfig.DeterministicActionPool
+            .Where(action => !CraftimizerSolverConfig.RiskyActions.Contains(action))
+            .ToArray();
+        var config = CraftimizerSolverConfig.SynthHelperDefault with
+        {
+            Algorithm = CraftimizerSolverAlgorithm.NextActionForked,
+            // The complete offline preview gets exactly one small solver job.
+            // Never multiply this budget by the requested craft quantity.
+            MaxTimeMs = 1500,
+            Iterations = 100_000,
+            MaxIterations = 100_000,
+            MaxThreadCount = 1,
+            ForkCount = 2,
+            FurcatedActionCount = 1,
+            PruneActionCount = 1,
+            ScreenBudgetPercent = 35,
+            QualityTargetPercent = 100,
+            QualityTargetToMaxCollectability = false,
             MaxStepCount = inputState.ActionCount + 48,
             ActionPool = pool,
             StrictActions = true,

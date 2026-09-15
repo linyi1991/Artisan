@@ -1,6 +1,7 @@
 ﻿using Artisan.Autocraft;
 using Artisan.CraftingLists;
 using Artisan.CraftingLogic;
+using Artisan.CraftingLogic.Solvers;
 using Artisan.GameInterop;
 using Artisan.RawInformation;
 using Artisan.RawInformation.Character;
@@ -24,6 +25,7 @@ namespace Artisan.IPC
         private static bool stopCraftingRequest;
         private const string CraftimizerSolverName = "Craftimizer Recipe Solver";
         private static readonly ConcurrentDictionary<ushort, PredictionJob> CraftimizerPredictions = new();
+        private static readonly SemaphoreSlim CraftimizerPredictionGate = new(1, 1);
         private static readonly Dictionary<uint, (string Type, int Flavour)> AllaganSolverRestore = new();
         private static bool allaganListObserved;
 
@@ -421,7 +423,9 @@ namespace Artisan.IPC
                     : solverDesc.UnsupportedReason);
             var solver = solverDesc.CreateSolver(craft)
                 ?? throw new InvalidOperationException("無法建立 Craftimizer 2.11 求解器。");
-            var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            // Preview is for exactly one item. The requested bulk craft amount is
+            // intentionally not part of this IPC and must never multiply solver work.
+            var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             var task = SimulateCraftimizerExecutionAsync(solver, craft, isCollectable,
                 collectableMode.Target, collectableMode.Name, details, cancellation.Token);
             ReplacePrediction(recipeId, cancellation, task, replaceExisting);
@@ -446,23 +450,60 @@ namespace Artisan.IPC
         {
             var simulationSolver = solver.Clone();
             var step = Simulator.CreateInitial(craft, 0);
-            while (Simulator.Status(craft, step) == Simulator.CraftStatus.InProgress)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var recommendation = simulationSolver is IAsyncSolver asyncSolver
-                    ? await asyncSolver.SolveAsync(craft, step, cancellationToken).ConfigureAwait(false)
-                    : simulationSolver.Solve(craft, step);
-                var action = recommendation.Action;
-                if (action == Skills.None)
-                    return $"BLOCK|Craftimizer 2.11 未能完成製作；{details}";
-                if (Simulator.GetSuccessRate(step, action) < 1.0)
-                    return $"BLOCK|Craftimizer 2.11 會使用非 100% 成功技能「{action}」，無法保證品質；{details}";
 
-                var (executeResult, next) = Simulator.Execute(craft, step, action, 0, 1);
-                if (executeResult == Simulator.ExecuteResult.CantUse)
-                    return $"BLOCK|Craftimizer 2.11 建議了目前不能使用的技能「{action}」；{details}";
-                step = next;
+            if (simulationSolver is CraftimizerSolver craftimizerSolver)
+            {
+                await CraftimizerPredictionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var plan = await craftimizerSolver
+                        .SolvePreviewPlanAsync(craft, step, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (plan == null || plan.Count == 0)
+                        return $"BLOCK|Craftimizer 2.11 單次預覽未找到可行解或已逾時；{details}";
+
+                    foreach (var action in plan)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (Simulator.Status(craft, step) != Simulator.CraftStatus.InProgress)
+                            break;
+                        if (Simulator.GetSuccessRate(step, action) < 1.0)
+                            return $"BLOCK|Craftimizer 2.11 會使用非 100% 成功技能「{action}」，無法保證品質；{details}";
+
+                        var (executeResult, next) = Simulator.Execute(craft, step, action, 0, 1);
+                        if (executeResult == Simulator.ExecuteResult.CantUse)
+                            return $"BLOCK|Craftimizer 2.11 建議了目前不能使用的技能「{action}」；{details}";
+                        step = next;
+                    }
+                }
+                finally
+                {
+                    CraftimizerPredictionGate.Release();
+                }
             }
+            else
+            {
+                while (Simulator.Status(craft, step) == Simulator.CraftStatus.InProgress)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var recommendation = simulationSolver is IAsyncSolver asyncSolver
+                        ? await asyncSolver.SolveAsync(craft, step, cancellationToken).ConfigureAwait(false)
+                        : simulationSolver.Solve(craft, step);
+                    var action = recommendation.Action;
+                    if (action == Skills.None)
+                        return $"BLOCK|Craftimizer 2.11 未能完成製作；{details}";
+                    if (Simulator.GetSuccessRate(step, action) < 1.0)
+                        return $"BLOCK|Craftimizer 2.11 會使用非 100% 成功技能「{action}」，無法保證品質；{details}";
+
+                    var (executeResult, next) = Simulator.Execute(craft, step, action, 0, 1);
+                    if (executeResult == Simulator.ExecuteResult.CantUse)
+                        return $"BLOCK|Craftimizer 2.11 建議了目前不能使用的技能「{action}」；{details}";
+                    step = next;
+                }
+            }
+
+            if (Simulator.Status(craft, step) == Simulator.CraftStatus.InProgress)
+                return $"BLOCK|Craftimizer 2.11 單次預覽未能在限定步數內完成製作；{details}";
 
             if (isCollectable)
             {

@@ -1,5 +1,13 @@
 # Artisan + Craftimizer Solver integration (API13/TW)
 
+## 4.0.3.127-api13-tw-craftimizer11-bounded-preview
+
+- 修正 AllaganTools 單筆「模擬製作」會在每個虛擬製作步驟重新啟動一次完整 `NextActionForked` 搜尋，造成 CPU／記憶體持續攀升並可能被系統以 exit code 137 終止。
+- 離線預覽現在只啟動一次 Craftimizer core：總搜尋預算 1.5 秒、單執行緒、最多 10 秒工作生命週期，取得完整候選動作後再以 Artisan 模擬器驗證。
+- 所有配方的預覽工作共用單一 semaphore，避免快速點選多列時並行堆疊重型搜尋；再次預覽相同配方仍會取消舊工作。
+- 預覽 IPC 只接收 `recipeId`，固定模擬一件。即使實際要求製作 999 次，也只做一次安全檢查，再由 Artisan 清單重複製作，不會建立 999 個預覽工作。
+- 實際製作與宇宙製作仍維持每個真實遊戲動作後重新求解下一步的路徑，不套用離線預覽的單次計畫。
+
 ## 4.0.3.123-api13-tw-craftimizer7-quickinno
 
 - 修正 `Quick Innovation`（快速改革）在 API13/TW 製作模擬器中被錯誤視為推進回合的問題。
