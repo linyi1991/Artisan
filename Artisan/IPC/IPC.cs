@@ -283,6 +283,13 @@ namespace Artisan.IPC
             var list = new NewCraftingList
             {
                 Name = $"Allagan Tools - {recipe.Value.ItemResult.Value.Name}",
+                // This is an ephemeral list, so NewCraftingList.Save() never
+                // applies the user's list defaults. Explicitly inherit the
+                // global bulk-crafting maintenance settings instead of leaving
+                // repair disabled at the CLR default.
+                Repair = P.Config.Repair,
+                RepairPercent = Math.Clamp(P.Config.RepairPercent, 1, 100),
+                Materia = P.Config.Materia,
             };
             if (includeSubcrafts)
                 CraftingListUI.AddAllSubcrafts(recipe.Value, list, 1, amount);
@@ -292,7 +299,8 @@ namespace Artisan.IPC
             Svc.Log.Information(
                 $"Allagan craft request: recipe={recipeId}, crafts={amount}, yield={recipe.Value.AmountResult}, " +
                 $"outputs={amount * recipe.Value.AmountResult}, includeSubcrafts={includeSubcrafts}, " +
-                $"retainerIpcReady={RetainerInfo.ATools}");
+                $"retainerIpcReady={RetainerInfo.ATools}, repair={list.Repair}, " +
+                $"repairPercent={list.RepairPercent}");
 
             if (preferCraftimizer)
                 ApplyCraftimizerToList(list);

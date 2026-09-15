@@ -1,5 +1,12 @@
 # Artisan + Craftimizer Solver integration (API13/TW)
 
+## 4.0.3.129-api13-tw-craftimizer12-bulk-repair
+
+- 修正 Allagan Tools／Craftimizer IPC 大量製作使用暫時清單時，因未呼叫 `NewCraftingList.Save()` 而讓 `Repair` 維持 `false` 的問題。
+- 暫時清單現在明確繼承 Artisan 全域的自動維修、維修門檻與精製設定；Theo 現行全域門檻為 10%，因此會在裝備損壞前離開製作並進入 `RepairManager`。
+- 大量製作啟動日誌會記錄 `repair` 與 `repairPercent`，方便確認跨插件請求實際採用的維護設定。
+- Craftimizer 的標準化計畫快取與 Normal 條件重播邏輯維持不變；本修正不增加 MCTS 計算次數。
+
 ## 4.0.3.128-api13-tw-craftimizer11-cached-plan
 
 - 修正大量製作雖然只做一次離線預演，但實際每一個遊戲動作仍重新建立 `NextActionForked` MCTS 搜尋樹；148 次配方會把成本放大為「製作步數 × 148」，造成 Wine 記憶體最高約 6.5GB、進入 swap、長時間 framework hitch，並曾以 exit code 137 終止。
@@ -107,7 +114,7 @@
 - Upstream solver source: Craftimizer tag `2.11.0.2`, commit
   `3b07695eb0636204d61b066dcca4b770d184ea2d` (MIT).
 - API13/net9 backport: tag `2.11.0.2-api13-cosmic2`, commit `d667332`.
-- Artisan build: `4.0.3.128-api13-tw-craftimizer11-cached-plan` (commit recorded by the release update).
+- Artisan build: `4.0.3.129-api13-tw-craftimizer12-bulk-repair` (commit recorded by the release update).
 - AllaganTools caller: `13.1.20.0`, commit `702a280`.
 - Paired ICE: `0.0.0.705-api13-tw40`, Dalamud API 13, net9.
 - The adapter contains the 2.11 solver/simulator core, not the standalone
