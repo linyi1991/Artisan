@@ -29,7 +29,7 @@ namespace Artisan.IPC
         private static readonly Dictionary<uint, (string Type, int Flavour)> AllaganSolverRestore = new();
         private static bool allaganListObserved;
 
-        private sealed record PredictionJob(CancellationTokenSource Cancellation, Task<string> Task);
+        private sealed record PredictionJob(CraftState Craft, CancellationTokenSource Cancellation, Task<string> Task);
 
         public static bool StopCraftingRequest
         {
@@ -241,7 +241,11 @@ namespace Artisan.IPC
             if (IsBusy() || RetainerInfo.TM.IsBusy)
                 throw new InvalidOperationException("Artisan is currently busy.");
 
-            var prediction = StartCraftimizerPrediction(recipeId, true);
+            // The explicit analysis button already performed the expensive
+            // bounded solve and cached a plan for this exact craft state. Reuse
+            // that successful preflight here; only solve again when no matching
+            // validated plan exists (for example after gear/settings changed).
+            var prediction = StartCraftimizerPrediction(recipeId, false);
             _ = prediction.ContinueWith(task =>
             {
                 if (task.IsCanceled)
@@ -416,6 +420,27 @@ namespace Artisan.IPC
             var details = $"Craftimizer 2.11 Next Action；裝備/食藥後：作業 {craft.StatCraftsmanship}、加工 {craft.StatControl}、CP {craft.StatCP}；食物：{config.FoodName}；藥水：{config.PotionName}" +
                 (isCollectable ? $"；收藏品目標：{collectableMode.Name}（{collectableMode.Target}）" : string.Empty);
 
+            if (!replaceExisting &&
+                CraftimizerPredictions.TryGetValue(recipeId, out var existing) &&
+                existing.Craft == craft &&
+                !existing.Task.IsCanceled && !existing.Task.IsFaulted)
+            {
+                if (!existing.Task.IsCompleted)
+                {
+                    Svc.Log.Information($"[Craftimizer Preview Cache] Reusing the in-flight analysis for recipe {recipeId}");
+                    return existing.Task;
+                }
+
+                if (existing.Task.Result.StartsWith("SAFE|", StringComparison.Ordinal) &&
+                    CraftimizerSolver.HasValidatedPlan(craft, out var cachedActions))
+                {
+                    Svc.Log.Information(
+                        $"[Craftimizer Preview Cache] Reusing validated recipe {recipeId} preflight " +
+                        $"({cachedActions} actions); no second MCTS solve");
+                    return existing.Task;
+                }
+            }
+
             var solverDesc = CraftingProcessor.GetAvailableSolversForRecipe(craft, false)
                 .FirstOrDefault(candidate => candidate.Name == CraftimizerSolverName);
             if (solverDesc == default || !string.IsNullOrEmpty(solverDesc.UnsupportedReason))
@@ -429,14 +454,14 @@ namespace Artisan.IPC
             var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             var task = SimulateCraftimizerExecutionAsync(solver, craft, isCollectable,
                 collectableMode.Target, collectableMode.Name, details, cancellation.Token);
-            ReplacePrediction(recipeId, cancellation, task, replaceExisting);
+            ReplacePrediction(recipeId, craft, cancellation, task, replaceExisting);
             return task;
         }
 
-        private static void ReplacePrediction(ushort recipeId, CancellationTokenSource cancellation,
+        private static void ReplacePrediction(ushort recipeId, CraftState craft, CancellationTokenSource cancellation,
             Task<string> task, bool replaceExisting)
         {
-            var replacement = new PredictionJob(cancellation, task);
+            var replacement = new PredictionJob(craft with { }, cancellation, task);
             if (replaceExisting && CraftimizerPredictions.TryRemove(recipeId, out var previous))
             {
                 previous.Cancellation.Cancel();

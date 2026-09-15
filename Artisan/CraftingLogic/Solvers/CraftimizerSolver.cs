@@ -90,6 +90,18 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
 
     public static bool SupportsValidatedPlan(CraftState craft) => !craft.CraftExpert && !craft.IsCosmic;
 
+    public static bool HasValidatedPlan(CraftState craft, out int actionCount)
+    {
+        if (SupportsValidatedPlan(craft) && ValidatedPlans.TryGetValue(CreatePlanKey(craft), out var plan))
+        {
+            actionCount = plan.Length;
+            return true;
+        }
+
+        actionCount = 0;
+        return false;
+    }
+
     public static void CacheValidatedPlan(CraftState craft, IReadOnlyList<Skills> plan)
     {
         if (!SupportsValidatedPlan(craft) || plan.Count == 0)

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Authors></Authors>
     <Company></Company>
-    <Version>4.0.3.129-api13-tw-craftimizer12-bulk-repair</Version>
+    <Version>4.0.3.130-api13-tw-craftimizer13-reuse-preflight</Version>
     <Description>A 'simple' crafting plugin.</Description>
     <Copyright>Taurenkey</Copyright>
   </PropertyGroup>

@@ -1,5 +1,12 @@
 # Artisan + Craftimizer Solver integration (API13/TW)
 
+## 4.0.3.130-api13-tw-craftimizer13-reuse-preflight
+
+- 修正按「模擬製作」已成功並存入標準化計畫後，實際按「製作」仍強制啟動第二次隨機 MCTS；第二次結果可能較差，造成明明第一次達標卻被安全門鎖拒絕。
+- 製作入口現在會以完整 `PlanKey` 核對配方、製作／加工／CP、等級、技能解鎖、專家／宇宙旗標、配方難度與品質門檻。完全相符才沿用成功預演；裝備、食藥、設定或配方狀態改變時自動失效並重新分析。
+- 若相同配方分析仍在執行，製作入口共用同一工作，不另開第二個求解器；日誌會顯示 `[Craftimizer Preview Cache] ... no second MCTS solve`。
+- 保留 4.0.3.129 的 Allagan 暫時清單自動維修繼承修正。
+
 ## 4.0.3.129-api13-tw-craftimizer12-bulk-repair
 
 - 修正 Allagan Tools／Craftimizer IPC 大量製作使用暫時清單時，因未呼叫 `NewCraftingList.Save()` 而讓 `Repair` 維持 `false` 的問題。
@@ -114,7 +121,7 @@
 - Upstream solver source: Craftimizer tag `2.11.0.2`, commit
   `3b07695eb0636204d61b066dcca4b770d184ea2d` (MIT).
 - API13/net9 backport: tag `2.11.0.2-api13-cosmic2`, commit `d667332`.
-- Artisan build: `4.0.3.129-api13-tw-craftimizer12-bulk-repair` (commit recorded by the release update).
+- Artisan build: `4.0.3.130-api13-tw-craftimizer13-reuse-preflight` (commit recorded by the release update).
 - AllaganTools caller: `13.1.20.0`, commit `702a280`.
 - Paired ICE: `0.0.0.705-api13-tw40`, Dalamud API 13, net9.
 - The adapter contains the 2.11 solver/simulator core, not the standalone
