@@ -408,6 +408,9 @@ namespace Artisan.IPC
             if (!P.Config.RecipeConfigs.TryGetValue(recipe.RowId, out var config))
                 config = new RecipeConfig();
             var stats = CharacterStats.GetBaseStatsForClassHeuristic(job);
+            var baseCraftsmanship = stats.Craftsmanship;
+            var baseControl = stats.Control;
+            var baseCp = stats.CP;
             stats.AddConsumables(new(config.RequiredFood, config.RequiredFoodHQ),
                 new(config.RequiredPotion, config.RequiredPotionHQ), CharacterInfo.FCCraftsmanshipbuff);
             var craft = Crafting.BuildCraftStateForRecipe(stats, job, recipe);
@@ -417,8 +420,13 @@ namespace Artisan.IPC
                 2 => (Name: "中間", Target: craft.CraftQualityMin2),
                 _ => (Name: "最高", Target: craft.CraftQualityMin3),
             };
-            var details = $"Craftimizer 2.11 Next Action；裝備/食藥後：作業 {craft.StatCraftsmanship}、加工 {craft.StatControl}、CP {craft.StatCP}；食物：{config.FoodName}；藥水：{config.PotionName}" +
+            var details = $"Craftimizer 2.11 Next Action；基礎裝備：作業 {baseCraftsmanship}、加工 {baseControl}、CP {baseCp}；" +
+                $"預先套用指定食藥後：作業 {craft.StatCraftsmanship}、加工 {craft.StatControl}、CP {craft.StatCP}；食物：{config.FoodName}；藥水：{config.PotionName}" +
                 (isCollectable ? $"；收藏品目標：{collectableMode.Name}（{collectableMode.Target}）" : string.Empty);
+            Svc.Log.Information(
+                $"[Craftimizer Preflight] Recipe {recipeId}: base={baseCraftsmanship}/{baseControl}/{baseCp}, " +
+                $"configuredConsumables={config.FoodName} + {config.PotionName}, " +
+                $"simulated={craft.StatCraftsmanship}/{craft.StatControl}/{craft.StatCP}");
 
             if (!replaceExisting &&
                 CraftimizerPredictions.TryGetValue(recipeId, out var existing) &&
@@ -486,23 +494,28 @@ namespace Artisan.IPC
                     var plan = await craftimizerSolver
                         .SolvePreviewPlanAsync(craft, step, cancellationToken)
                         .ConfigureAwait(false);
-                    if (plan == null || plan.Count == 0)
-                        return $"BLOCK|Craftimizer 2.11 單次預覽未找到可行解或已逾時；{details}";
-
-                    foreach (var action in plan)
+                    if (plan != null && plan.Count > 0 &&
+                        TrySimulateSafePlan(craft, plan, cancellationToken, out var craftimizerStep))
                     {
-                        cancellationToken.ThrowIfCancellationRequested();
-                        if (Simulator.Status(craft, step) != Simulator.CraftStatus.InProgress)
-                            break;
-                        if (Simulator.GetSuccessRate(step, action) < 1.0)
-                            return $"BLOCK|Craftimizer 2.11 會使用非 100% 成功技能「{action}」，無法保證品質；{details}";
-
-                        var (executeResult, next) = Simulator.Execute(craft, step, action, 0, 1);
-                        if (executeResult == Simulator.ExecuteResult.CantUse)
-                            return $"BLOCK|Craftimizer 2.11 建議了目前不能使用的技能「{action}」；{details}";
-                        step = next;
+                        step = craftimizerStep;
+                        validatedPlan = plan;
                     }
-                    validatedPlan = plan;
+
+                    // The bounded one-thread MCTS preview can occasionally miss
+                    // a rotation that Artisan's deterministic simulator finds
+                    // immediately.  Use the exact same configured food/potion
+                    // stats for one cheap fallback pass instead of making the
+                    // player rerun the expensive preview until RNG succeeds.
+                    if (!MeetsPreflightTarget(craft, step, isCollectable, collectableTarget) &&
+                        TryBuildSafeArtisanPlan(craft, cancellationToken, out var fallbackStep, out var fallbackPlan) &&
+                        MeetsPreflightTarget(craft, fallbackStep, isCollectable, collectableTarget))
+                    {
+                        step = fallbackStep;
+                        validatedPlan = fallbackPlan;
+                        Svc.Log.Information(
+                            $"[Craftimizer Preflight] Bounded MCTS did not meet the target; " +
+                            $"validated Artisan fallback with the same configured consumables ({fallbackPlan.Count} actions)");
+                    }
                 }
                 finally
                 {
@@ -562,6 +575,66 @@ namespace Artisan.IPC
             return maxQuality
                 ? $"SAFE|Craftimizer 2.11 保證 HQ（0 初始品質模擬達到 100%）；{details}"
                 : $"BLOCK|Craftimizer 2.11 無法保證 HQ（模擬品質 {qualityPercent}%）；{details}";
+        }
+
+        private static bool MeetsPreflightTarget(CraftState craft, StepState step,
+            bool isCollectable, int collectableTarget)
+        {
+            if (isCollectable)
+                return step.Progress >= craft.CraftProgress && step.Quality >= collectableTarget;
+            if (!craft.CraftHQ)
+                return Simulator.Status(craft, step) == Simulator.CraftStatus.SucceededNoQualityReq;
+            return Simulator.Status(craft, step) == Simulator.CraftStatus.SucceededMaxQuality;
+        }
+
+        private static bool TrySimulateSafePlan(CraftState craft, IReadOnlyList<Skills> plan,
+            CancellationToken cancellationToken, out StepState step)
+        {
+            step = Simulator.CreateInitial(craft, 0);
+            foreach (var action in plan)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (Simulator.Status(craft, step) != Simulator.CraftStatus.InProgress)
+                    break;
+                if (action == Skills.None || Simulator.GetSuccessRate(step, action) < 1.0)
+                    return false;
+
+                var (executeResult, next) = Simulator.Execute(craft, step, action, 0, 1);
+                if (executeResult == Simulator.ExecuteResult.CantUse)
+                    return false;
+                step = next;
+            }
+            return Simulator.Status(craft, step) != Simulator.CraftStatus.InProgress;
+        }
+
+        private static bool TryBuildSafeArtisanPlan(CraftState craft, CancellationToken cancellationToken,
+            out StepState step, out IReadOnlyList<Skills> plan)
+        {
+            var solver = new StandardSolver(false);
+            var actions = new List<Skills>();
+            step = Simulator.CreateInitial(craft, 0);
+            while (Simulator.Status(craft, step) == Simulator.CraftStatus.InProgress && actions.Count < 64)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var action = solver.Solve(craft, step).Action;
+                if (action == Skills.None || Simulator.GetSuccessRate(step, action) < 1.0)
+                {
+                    plan = Array.Empty<Skills>();
+                    return false;
+                }
+
+                var (executeResult, next) = Simulator.Execute(craft, step, action, 0, 1);
+                if (executeResult == Simulator.ExecuteResult.CantUse)
+                {
+                    plan = Array.Empty<Skills>();
+                    return false;
+                }
+                actions.Add(action);
+                step = next;
+            }
+
+            plan = actions;
+            return actions.Count > 0 && Simulator.Status(craft, step) != Simulator.CraftStatus.InProgress;
         }
 
         /// <summary>

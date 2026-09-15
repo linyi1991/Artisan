@@ -1,5 +1,12 @@
 # Artisan + Craftimizer Solver integration (API13/TW)
 
+## 4.0.3.131-api13-tw-craftimizer14-consumable-preflight
+
+- 預演日誌與結果現在同時列出基礎裝備能力、指定食物／藥水及預先套用後能力，明確證明人物尚未實際吃食藥時也會先用指定效果模擬。
+- 1.5 秒單執行緒 Craftimizer MCTS 若未達標，會以完全相同的食藥後 `CraftState` 執行一次輕量 Artisan 安全模擬；備援達標就快取其標準化步驟，避免反覆按分析賭 MCTS 搜尋結果。
+- 備援只在玩家明確按分析時執行一次，且最多 64 個同步模擬步驟；不會依大量製作 50／148／999 次倍增。
+- 保留 4.0.3.130 的成功預演重用，以及 4.0.3.129 的大量製作自動維修繼承修正。
+
 ## 4.0.3.130-api13-tw-craftimizer13-reuse-preflight
 
 - 修正按「模擬製作」已成功並存入標準化計畫後，實際按「製作」仍強制啟動第二次隨機 MCTS；第二次結果可能較差，造成明明第一次達標卻被安全門鎖拒絕。
@@ -121,7 +128,7 @@
 - Upstream solver source: Craftimizer tag `2.11.0.2`, commit
   `3b07695eb0636204d61b066dcca4b770d184ea2d` (MIT).
 - API13/net9 backport: tag `2.11.0.2-api13-cosmic2`, commit `d667332`.
-- Artisan build: `4.0.3.130-api13-tw-craftimizer13-reuse-preflight` (commit recorded by the release update).
+- Artisan build: `4.0.3.131-api13-tw-craftimizer14-consumable-preflight` (commit recorded by the release update).
 - AllaganTools caller: `13.1.20.0`, commit `702a280`.
 - Paired ICE: `0.0.0.705-api13-tw40`, Dalamud API 13, net9.
 - The adapter contains the 2.11 solver/simulator core, not the standalone
