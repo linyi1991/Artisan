@@ -8,6 +8,13 @@
 - 預覽 IPC 只接收 `recipeId`，固定模擬一件。即使實際要求製作 999 次，也只做一次安全檢查，再由 Artisan 清單重複製作，不會建立 999 個預覽工作。
 - 實際製作與宇宙製作仍維持每個真實遊戲動作後重新求解下一步的路徑，不套用離線預覽的單次計畫。
 
+## 4.0.3.125-api13-tw-craftimizer9-retainer-max
+
+- Craftimizer 2.11 Solver Core 回補至 API13 / .NET 9，改用有時間上限、剪枝及品質目標的 `NextActionForked`。
+- AllaganTools「我的庫存能做什麼」透過 start/poll IPC 在背景預測，不阻塞遊戲 UI；實際製作先通過 HQ／收藏品安全鎖，再由 Artisan 建立完整子配方清單。
+- 清單內配方會暫時選用 `Craftimizer Recipe Solver`，結束或失敗後恢復原本的暫時求解器設定。
+- AllaganTools MAX 只計角色四頁背包／水晶及僱員七頁背包／水晶；Artisan 直接以 InventoryTools IPC 初始化狀態判斷是否執行僱員取料。
+
 ## 4.0.3.123-api13-tw-craftimizer7-quickinno
 
 - 修正 `Quick Innovation`（快速改革）在 API13/TW 製作模擬器中被錯誤視為推進回合的問題。
@@ -25,12 +32,13 @@
 
 - Artisan remains the only workflow and action executor. It owns recipe selection,
   consumables, Endurance/Craft X, retries, lists, state synchronization, and IPC.
-- Craftimizer 2.8.0.0 is linked as `Simulator` and `Solver` libraries only. Its
+- Craftimizer 2.11.0.2 is linked as `Simulator` and `Solver` libraries only. Its
   Dalamud plugin UI, hooks, and action execution are not loaded.
 - `CraftingProcessor` requests one recommendation asynchronously and publishes it
   back on Dalamud's framework thread. Artisan then validates and executes it.
-- Existing Artisan solvers remain unchanged. `Craftimizer Recipe Solver` has
-  priority 0 and is selected only by recipe configuration or ICE IPC.
+- Existing Artisan solvers remain available. `Craftimizer Recipe Solver` has
+  priority 0 and is selected by recipe configuration, ICE IPC, or the guarded
+  AllaganTools crafting route.
 
 ## Cosmic bridge and safety behavior
 
@@ -51,8 +59,9 @@
 - `MaxStepCount` is relative to the current live craft (`ActionCount + 48`). This
   prevents resumed long-progress Cosmic crafts from becoming mathematically
   unreachable because an absolute 40-step ceiling was nearly exhausted.
-- The adapter uses `OneshotForked`: it calculates only the next recommendation,
-  then Artisan validates and executes it from the current game state.
+- During real crafting the adapter uses `NextActionForked` with a 1.8-second
+  per-step wall-clock budget, action pruning and a 100% quality target. Artisan
+  validates and executes each recommendation from the current game state.
 - The adapter retains one live action of combo history. Advanced Touch receives
   its discounted CP cost only after the complete Basic Touch -> Standard Touch
   chain (or Observe), matching the game instead of treating every isolated
@@ -70,23 +79,39 @@
 - ICE's Progress Only leveling rule remains higher priority.
 - Craftimizer and Raphael selection are mutually exclusive in ICE settings.
 
+## AllaganTools contract
+
+- `Artisan.StartCraftimizerHqPrediction(ushort) -> string` starts one bounded,
+  background, zero-initial-quality simulation and returns `PENDING|...`.
+- `Artisan.GetCraftimizerHqPrediction(ushort) -> string` returns
+  `IDLE|...`, `PENDING|...`, `SAFE|...`, or `BLOCK|...`.
+- `Artisan.PrepareAndCraftWithCraftimizer(ushort, int, bool)` repeats the
+  one-item preflight and only then retrieves retainer materials and starts the
+  requested list. The `amount` never multiplies preview jobs.
+- Legacy `Artisan.GetHqPrediction` and `Artisan.PrepareAndCraft` remain for
+  existing callers, but are not the new AllaganTools primary path.
+
 ## Provenance and verification
 
-- Solver source: Craftimizer tag `2.8.0.0`, commit
-  `3359748d1382dab09f76aaed98ea7c2b07e36888` (MIT).
-- Artisan candidate: `4.0.3.121-api13-tw-craftimizer5`, Dalamud API 13, net9.
+- Upstream solver source: Craftimizer tag `2.11.0.2`, commit
+  `3b07695eb0636204d61b066dcca4b770d184ea2d` (MIT).
+- API13/net9 backport: tag `2.11.0.2-api13-cosmic2`, commit `d667332`.
+- Artisan build: `4.0.3.127-api13-tw-craftimizer11-bounded-preview`, commit `f25b552`.
+- AllaganTools caller: `13.1.20.0`, commit `702a280`.
 - Paired ICE: `0.0.0.705-api13-tw40`, Dalamud API 13, net9.
-- The adapter is a targeted API13 backport/extension of Craftimizer 2.8.0.0;
-  it is not presented as the complete official 2.11 plugin.
+- The adapter contains the 2.11 solver/simulator core, not the standalone
+  official Craftimizer Dalamud UI or action executor.
 - Craftimizer core tests: 28 passed, 0 failed. They include initial,
   resumed-active, and expired Material Miracle states for the long-progress
   Cosmic recipe model, completion-dominant scoring, and the resumed step limit.
-- Artisan Release build: 0 errors (existing warnings remain). In-game verification
-  must include a full Cosmic craft and the following mission start before this
-  pair is treated as runtime-proven.
+- Artisan Release build: 0 errors (113 existing warnings). Craftimizer core
+  tests: 28 passed, 0 failed. Runtime loaded Artisan 4.0.3.127 without a new
+  plugin load error; one fresh button-triggered preview remains the acceptance
+  test for the bounded path.
 
 ## Deployment
 
-Deploy Artisan and the paired ICE build together while both plugins are stopped.
+Deploy Artisan and the paired AllaganTools build together. Stop both plugins if
+hot reload does not occur automatically.
 Do not install or enable the standalone Craftimizer plugin for this integration.
-Keep the previous Artisan and ICE directories as a paired rollback set.
+Keep the previous Artisan and AllaganTools directories as a paired rollback set.
