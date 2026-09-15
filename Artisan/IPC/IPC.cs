@@ -260,8 +260,8 @@ namespace Artisan.IPC
                     {
                         if (IsBusy() || RetainerInfo.TM.IsBusy)
                             throw new InvalidOperationException("Artisan 在預測完成前已開始其他工作，已取消本次製作。");
-                        PrepareAndCraftCore(recipeId, amount, includeSubcrafts, true);
-                        DuoLog.Information($"Craftimizer 2.11 HQ 預測通過，已建立 {amount} 次製作任務。");
+                        var solverRecipeCount = PrepareAndCraftCore(recipeId, amount, includeSubcrafts, true);
+                        DuoLog.Information($"Craftimizer 2.11 單次求解通過；已為 {solverRecipeCount} 個不同配方套用求解器，Artisan 將依序重複主配方 {amount} 次。");
                     }
                     catch (Exception ex)
                     {
@@ -273,7 +273,7 @@ namespace Artisan.IPC
             }, TaskScheduler.Default);
         }
 
-        private static void PrepareAndCraftCore(ushort recipeId, int amount, bool includeSubcrafts, bool preferCraftimizer)
+        private static int PrepareAndCraftCore(ushort recipeId, int amount, bool includeSubcrafts, bool preferCraftimizer)
         {
             if (!LuminaSheets.RecipeSheet!.TryGetFirst(x => x.Value.RowId == recipeId, out var recipe))
                 throw new InvalidOperationException("RecipeID not found.");
@@ -304,6 +304,8 @@ namespace Artisan.IPC
             {
                 CraftingListUI.StartList();
             }
+
+            return list.Recipes.Select(item => item.ID).Distinct().Count();
         }
 
         private static void ApplyCraftimizerToList(NewCraftingList list)

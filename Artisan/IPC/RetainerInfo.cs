@@ -253,10 +253,19 @@ namespace Artisan.IPC
                         }
                     }
 
+                    var retainerManager = RetainerManager.Instance();
+                    if (retainerManager == null)
+                        return 0;
+
                     for (int i = 0; i < 10; i++)
                     {
                         ulong retainerId = 0;
-                        var retainer = RetainerManager.Instance()->GetRetainerBySortedIndex((uint)i);
+                        var retainer = retainerManager->GetRetainerBySortedIndex((uint)i);
+                        // Accounts may have fewer than ten retainers. API13 returns
+                        // a null pointer for the first unused sorted slot; dereferencing
+                        // it causes a native access violation that bypasses managed logs.
+                        if (retainer == null)
+                            continue;
 
                         if (P.Config.RetainerIDs.Count(x => x.Value == Svc.ClientState.LocalContentId) > i)
                         {
