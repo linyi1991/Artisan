@@ -405,6 +405,7 @@ namespace Artisan.IPC
             var recipe = recipeRow.Value;
             var isCollectable = recipe.ItemResult.Value.AlwaysCollectable;
             var job = (Job)((uint)Job.CRP + recipe.CraftType.RowId);
+            var targetJobName = job.ToString();
             if (!P.Config.RecipeConfigs.TryGetValue(recipe.RowId, out var config))
                 config = new RecipeConfig();
             var stats = CharacterStats.GetBaseStatsForClassHeuristic(job);
@@ -420,11 +421,12 @@ namespace Artisan.IPC
                 2 => (Name: "中間", Target: craft.CraftQualityMin2),
                 _ => (Name: "最高", Target: craft.CraftQualityMin3),
             };
-            var details = $"Craftimizer 2.11 Next Action；基礎裝備：作業 {baseCraftsmanship}、加工 {baseControl}、CP {baseCp}；" +
+            var details = $"Craftimizer 2.11 Next Action；目標職業：{targetJobName}；基礎裝備：作業 {baseCraftsmanship}、加工 {baseControl}、CP {baseCp}；" +
                 $"預先套用指定食藥後：作業 {craft.StatCraftsmanship}、加工 {craft.StatControl}、CP {craft.StatCP}；食物：{config.FoodName}；藥水：{config.PotionName}" +
                 (isCollectable ? $"；收藏品目標：{collectableMode.Name}（{collectableMode.Target}）" : string.Empty);
             Svc.Log.Information(
-                $"[Craftimizer Preflight] Recipe {recipeId}: base={baseCraftsmanship}/{baseControl}/{baseCp}, " +
+                $"[Craftimizer Preflight] Recipe {recipeId}: targetJob={targetJobName} ({(uint)job}), " +
+                $"base={baseCraftsmanship}/{baseControl}/{baseCp}, " +
                 $"configuredConsumables={config.FoodName} + {config.PotionName}, " +
                 $"simulated={craft.StatCraftsmanship}/{craft.StatControl}/{craft.StatCP}");
 

@@ -318,9 +318,13 @@ namespace Artisan.CraftingLists
 
             if (Svc.ClientState.LocalPlayer.ClassJob.RowId != recipe.CraftType.Value.RowId + 8)
             {
+                var targetJob = (Job)recipe.CraftType.Value.RowId + 8;
+                Svc.Log.Information(
+                    $"[Crafting List] Automatically switching from {CharacterInfo.JobID} to {targetJob} " +
+                    $"before recipe {recipe.RowId} ({recipe.ItemResult.Value.Name})");
                 PreCrafting.equipGearsetLoops = 0;
                 PreCrafting.Tasks.Add((() => PreCrafting.TaskExitCraft(), TimeSpan.FromMilliseconds(200)));
-                PreCrafting.Tasks.Add((() => PreCrafting.TaskClassChange((Job)recipe.CraftType.Value.RowId + 8), TimeSpan.FromMilliseconds(200)));
+                PreCrafting.Tasks.Add((() => PreCrafting.TaskClassChange(targetJob), TimeSpan.FromMilliseconds(200)));
 
                 return;
             }
