@@ -3,12 +3,14 @@ using Craftimizer.Simulator.Actions;
 using ECommons.DalamudServices;
 using Artisan.GameInterop;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ArtisanCondition = Artisan.CraftingLogic.CraftData.Condition;
+using ArtisanConditionFlags = Artisan.CraftingLogic.CraftData.ConditionFlags;
 using ArtisanSolver = Artisan.CraftingLogic.Solver;
 using CraftimizerAction = Craftimizer.Simulator.Actions.ActionType;
 using CraftimizerCoreSolver = Craftimizer.Solver.Solver;
@@ -39,14 +41,44 @@ public sealed class CraftimizerSolverDefinition : ISolverDefinition
 /// </summary>
 public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
 {
+    private const int MaxCachedPlans = 32;
     private static readonly TimeSpan RecommendationTimeout = TimeSpan.FromSeconds(8);
     private static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(5);
+    private static readonly ConcurrentDictionary<PlanKey, Skills[]> ValidatedPlans = new();
+    private static readonly ConcurrentQueue<PlanKey> ValidatedPlanOrder = new();
     private readonly ArtisanSolver _fallback;
     private readonly CraftState _initialCraft;
     private int _lastObservedStepIndex;
     private Skills _lastObservedAction = Skills.None;
     private ActionProc _lastComboState;
     private string? _fallbackOnlyReason;
+    private bool _reportedCachedPlan;
+
+    private readonly record struct PlanKey(
+        uint RecipeId,
+        int StatCraftsmanship,
+        int StatControl,
+        int StatCP,
+        int StatLevel,
+        bool UnlockedManipulation,
+        bool Specialist,
+        bool SplendorCosmic,
+        bool CraftHQ,
+        bool CraftCollectible,
+        bool CraftExpert,
+        int CraftLevel,
+        int CraftDurability,
+        int CraftProgress,
+        int CraftProgressDivider,
+        int CraftProgressModifier,
+        int CraftQualityDivider,
+        int CraftQualityModifier,
+        int CraftQualityMax,
+        int CraftQualityMin1,
+        int CraftQualityMin2,
+        int CraftQualityMin3,
+        int CraftRequiredQuality,
+        ArtisanConditionFlags ConditionFlags);
 
     public CraftimizerSolver(CraftState craft)
     {
@@ -55,6 +87,28 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
     }
 
     public override ArtisanSolver Clone() => new CraftimizerSolver(_initialCraft);
+
+    public static bool SupportsValidatedPlan(CraftState craft) => !craft.CraftExpert && !craft.IsCosmic;
+
+    public static void CacheValidatedPlan(CraftState craft, IReadOnlyList<Skills> plan)
+    {
+        if (!SupportsValidatedPlan(craft) || plan.Count == 0)
+            return;
+
+        var key = CreatePlanKey(craft);
+        var copy = plan.ToArray();
+        if (ValidatedPlans.TryAdd(key, copy))
+            ValidatedPlanOrder.Enqueue(key);
+        else
+            ValidatedPlans[key] = copy;
+
+        while (ValidatedPlans.Count > MaxCachedPlans && ValidatedPlanOrder.TryDequeue(out var oldest))
+            ValidatedPlans.TryRemove(oldest, out _);
+
+        Svc.Log.Information(
+            $"[Craftimizer Plan Cache] Stored validated recipe {craft.RecipeId} plan with {plan.Count} actions; " +
+            "bulk repetitions will replay it without another MCTS solve");
+    }
 
     // Offline Artisan simulations are synchronous. Use the existing safe
     // Artisan solver there; live crafting is routed through SolveAsync.
@@ -86,6 +140,47 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         {
             Svc.Log.Debug($"[Craftimizer Solver] Step {step.Index}: Artisan selected Material Miracle; preserving the Cosmic duty action");
             return Task.FromResult(artisanRecommendation with { Comment = "宇宙製作橋接：保留「素材奇蹟」技能" });
+        }
+
+        // Standard bulk crafts are deterministic enough to replay the complete
+        // plan that was already simulated and validated by the Allagan IPC
+        // preflight. Never start a fresh MCTS tree for every live action: doing
+        // that multiplies allocations by steps * requested quantity and can
+        // push Wine into swap or an exit-code-137 kill. Expert/Cosmic crafts
+        // retain the existing state-aware path below.
+        if (SupportsValidatedPlan(craft))
+        {
+            if (!ValidatedPlans.TryGetValue(CreatePlanKey(craft), out var plan))
+                return Task.FromResult(artisanRecommendation with
+                {
+                    Comment = "找不到相符的 Craftimizer 安全快取；改用 Artisan 即時備援",
+                });
+
+            // The offline plan is validated from Normal condition. A live
+            // Good/Excellent/Poor edge can change quality enough to make a
+            // later fixed action sequence unsafe, so hand the remainder of
+            // that craft to Artisan's lightweight state-aware solver.
+            if (step.Condition != ArtisanCondition.Normal)
+                return Task.FromResult(FallbackForCraft(step, artisanRecommendation,
+                    $"live condition changed to {step.Condition}"));
+
+            var planIndex = step.Index - 1;
+            if (planIndex < 0 || planIndex >= plan.Length)
+                return Task.FromResult(FallbackForCraft(step, artisanRecommendation, "cached plan step was unavailable"));
+
+            var cachedAction = plan[planIndex];
+            if (Simulator.CannotUseAction(craft, step, cachedAction, out var cachedReason))
+                return Task.FromResult(FallbackForCraft(step, artisanRecommendation,
+                    $"cached action {cachedAction} was unusable: {cachedReason}"));
+
+            if (!_reportedCachedPlan)
+            {
+                _reportedCachedPlan = true;
+                Svc.Log.Information(
+                    $"[Craftimizer Plan Cache] Replaying validated recipe {craft.RecipeId} plan ({plan.Length} actions); no live MCTS solves");
+            }
+            return Task.FromResult(new Recommendation(cachedAction,
+                $"Craftimizer 2.11 安全快取；步驟 {step.Index}/{plan.Length}"));
         }
 
         var materialMiracleSeconds = step.MaterialMiracleActive
@@ -232,6 +327,32 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             return "建議技能目前無法使用";
         return "計算發生錯誤";
     }
+
+    private static PlanKey CreatePlanKey(CraftState craft) => new(
+        craft.RecipeId,
+        craft.StatCraftsmanship,
+        craft.StatControl,
+        craft.StatCP,
+        craft.StatLevel,
+        craft.UnlockedManipulation,
+        craft.Specialist,
+        craft.SplendorCosmic,
+        craft.CraftHQ,
+        craft.CraftCollectible,
+        craft.CraftExpert,
+        craft.CraftLevel,
+        craft.CraftDurability,
+        craft.CraftProgress,
+        craft.CraftProgressDivider,
+        craft.CraftProgressModifier,
+        craft.CraftQualityDivider,
+        craft.CraftQualityModifier,
+        craft.CraftQualityMax,
+        craft.CraftQualityMin1,
+        craft.CraftQualityMin2,
+        craft.CraftQualityMin3,
+        craft.CraftRequiredQuality,
+        craft.ConditionFlags);
 
     private ActionProc GetComboState(StepState step)
     {

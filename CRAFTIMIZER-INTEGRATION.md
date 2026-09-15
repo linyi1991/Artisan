@@ -1,12 +1,21 @@
 # Artisan + Craftimizer Solver integration (API13/TW)
 
+## 4.0.3.128-api13-tw-craftimizer11-cached-plan
+
+- 修正大量製作雖然只做一次離線預演，但實際每一個遊戲動作仍重新建立 `NextActionForked` MCTS 搜尋樹；148 次配方會把成本放大為「製作步數 × 148」，造成 Wine 記憶體最高約 6.5GB、進入 swap、長時間 framework hitch，並曾以 exit code 137 終止。
+- AllaganTools 的一件式安全預演成功後，Artisan 現在會快取整套已逐步驗證的技能序列；同配方的大量製作只依目前步驟重播，不再於每個真實動作啟動 MCTS。要求 999 次仍只有一次預演與一套計畫。
+- 快取鍵包含配方、製作力、加工精度、CP、等級、專家／秘傳狀態、輝煌工具、HQ／收藏／專家分類、耐久、難度、品質門檻與條件旗標；換裝、食藥、狀態或配方條件改變時不會誤用舊計畫。
+- 每次重播前仍由 Artisan 模擬器檢查技能是否可用；遇到非 Normal 的即時品質條件、步驟超界、資源或狀態不符時，該次製作立即切回 Artisan 標準備援，不重新啟動 Craftimizer MCTS。
+- 標準非專家、非宇宙配方才使用固定計畫。宇宙與專家配方條件會變動，仍保留原本的逐步狀態感知路徑與 Material Miracle 防護。
+- 記憶體快取最多 32 套，插件重載後清空；下一次按模擬或從 AllaganTools 開始製作時會重新預演並建立快取，不寫入玩家設定。
+
 ## 4.0.3.127-api13-tw-craftimizer11-bounded-preview
 
 - 修正 AllaganTools 單筆「模擬製作」會在每個虛擬製作步驟重新啟動一次完整 `NextActionForked` 搜尋，造成 CPU／記憶體持續攀升並可能被系統以 exit code 137 終止。
 - 離線預覽現在只啟動一次 Craftimizer core：總搜尋預算 1.5 秒、單執行緒、最多 10 秒工作生命週期，取得完整候選動作後再以 Artisan 模擬器驗證。
 - 所有配方的預覽工作共用單一 semaphore，避免快速點選多列時並行堆疊重型搜尋；再次預覽相同配方仍會取消舊工作。
 - 預覽 IPC 只接收 `recipeId`，固定模擬一件。即使實際要求製作 999 次，也只做一次安全檢查，再由 Artisan 清單重複製作，不會建立 999 個預覽工作。
-- 實際製作與宇宙製作仍維持每個真實遊戲動作後重新求解下一步的路徑，不套用離線預覽的單次計畫。
+- 此段為 4.0.3.127 的歷史行為；4.0.3.128 已將標準非專家、非宇宙配方改為重播驗證過的單次計畫，宇宙／專家製作仍逐步求解。
 
 ## 4.0.3.125-api13-tw-craftimizer9-retainer-max
 
@@ -34,8 +43,10 @@
   consumables, Endurance/Craft X, retries, lists, state synchronization, and IPC.
 - Craftimizer 2.11.0.2 is linked as `Simulator` and `Solver` libraries only. Its
   Dalamud plugin UI, hooks, and action execution are not loaded.
-- `CraftingProcessor` requests one recommendation asynchronously and publishes it
-  back on Dalamud's framework thread. Artisan then validates and executes it.
+- Standard non-expert/non-Cosmic crafts replay one complete plan that the IPC
+  preflight already validated; the plan cache is keyed by recipe and crafting
+  capabilities. Expert and Cosmic crafts still request state-aware asynchronous
+  recommendations. Artisan remains the validator and executor in both paths.
 - Existing Artisan solvers remain available. `Craftimizer Recipe Solver` has
   priority 0 and is selected by recipe configuration, ICE IPC, or the guarded
   AllaganTools crafting route.
@@ -59,9 +70,9 @@
 - `MaxStepCount` is relative to the current live craft (`ActionCount + 48`). This
   prevents resumed long-progress Cosmic crafts from becoming mathematically
   unreachable because an absolute 40-step ceiling was nearly exhausted.
-- During real crafting the adapter uses `NextActionForked` with a 1.8-second
-  per-step wall-clock budget, action pruning and a 100% quality target. Artisan
-  validates and executes each recommendation from the current game state.
+- During real Expert/Cosmic crafting the adapter uses `NextActionForked` with a
+  1.8-second per-step wall-clock budget, action pruning and a 100% quality target.
+  Standard crafts never start live MCTS after a validated plan was cached.
 - The adapter retains one live action of combo history. Advanced Touch receives
   its discounted CP cost only after the complete Basic Touch -> Standard Touch
   chain (or Observe), matching the game instead of treating every isolated
@@ -96,7 +107,7 @@
 - Upstream solver source: Craftimizer tag `2.11.0.2`, commit
   `3b07695eb0636204d61b066dcca4b770d184ea2d` (MIT).
 - API13/net9 backport: tag `2.11.0.2-api13-cosmic2`, commit `d667332`.
-- Artisan build: `4.0.3.127-api13-tw-craftimizer11-bounded-preview`, commit `f25b552`.
+- Artisan build: `4.0.3.128-api13-tw-craftimizer11-cached-plan` (commit recorded by the release update).
 - AllaganTools caller: `13.1.20.0`, commit `702a280`.
 - Paired ICE: `0.0.0.705-api13-tw40`, Dalamud API 13, net9.
 - The adapter contains the 2.11 solver/simulator core, not the standalone
@@ -105,9 +116,9 @@
   resumed-active, and expired Material Miracle states for the long-progress
   Cosmic recipe model, completion-dominant scoring, and the resumed step limit.
 - Artisan Release build: 0 errors (113 existing warnings). Craftimizer core
-  tests: 28 passed, 0 failed. Runtime loaded Artisan 4.0.3.127 without a new
-  plugin load error; one fresh button-triggered preview remains the acceptance
-  test for the bounded path.
+  tests: 28 passed, 0 failed. Build-time verification proves cache routing and
+  API13/net9 compatibility; a long 148/999-repeat session remains the runtime
+  acceptance test and is not implied by compilation alone.
 
 ## Deployment
 

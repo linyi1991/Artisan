@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Authors></Authors>
     <Company></Company>
-    <Version>4.0.3.127-api13-tw-craftimizer11-bounded-preview</Version>
+    <Version>4.0.3.128-api13-tw-craftimizer11-cached-plan</Version>
     <Description>A 'simple' crafting plugin.</Description>
     <Copyright>Taurenkey</Copyright>
   </PropertyGroup>

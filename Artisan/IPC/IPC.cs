@@ -392,13 +392,6 @@ namespace Artisan.IPC
 
             var recipe = recipeRow.Value;
             var isCollectable = recipe.ItemResult.Value.AlwaysCollectable;
-            if (!isCollectable && (!recipe.CanHq || !recipe.ItemResult.Value.CanBeHq))
-            {
-                var fixedQuality = Task.FromResult("SAFE|此成品為固定品質，不存在 HQ 版本；實際製作仍使用 Craftimizer 2.11。 ");
-                ReplacePrediction(recipeId, new CancellationTokenSource(), fixedQuality, replaceExisting);
-                return fixedQuality;
-            }
-
             var job = (Job)((uint)Job.CRP + recipe.CraftType.RowId);
             if (!P.Config.RecipeConfigs.TryGetValue(recipe.RowId, out var config))
                 config = new RecipeConfig();
@@ -450,6 +443,7 @@ namespace Artisan.IPC
         {
             var simulationSolver = solver.Clone();
             var step = Simulator.CreateInitial(craft, 0);
+            IReadOnlyList<Skills>? validatedPlan = null;
 
             if (simulationSolver is CraftimizerSolver craftimizerSolver)
             {
@@ -475,6 +469,7 @@ namespace Artisan.IPC
                             return $"BLOCK|Craftimizer 2.11 建議了目前不能使用的技能「{action}」；{details}";
                         step = next;
                     }
+                    validatedPlan = plan;
                 }
                 finally
                 {
@@ -508,15 +503,30 @@ namespace Artisan.IPC
             if (isCollectable)
             {
                 var passed = step.Progress >= craft.CraftProgress && step.Quality >= collectableTarget;
+                if (passed && validatedPlan != null)
+                    CraftimizerSolver.CacheValidatedPlan(craft, validatedPlan);
                 return passed
                     ? $"SAFE|Craftimizer 2.11 收藏品模擬達標：{collectableName}檔，預測收藏價值 {step.Quality}（門檻 {collectableTarget}）；{details}"
                     : $"BLOCK|Craftimizer 2.11 收藏品模擬未達標：預測收藏價值 {step.Quality}／門檻 {collectableTarget}；{details}";
             }
 
+            if (!craft.CraftHQ)
+            {
+                var passed = Simulator.Status(craft, step) == Simulator.CraftStatus.SucceededNoQualityReq;
+                if (passed && validatedPlan != null)
+                    CraftimizerSolver.CacheValidatedPlan(craft, validatedPlan);
+                return passed
+                    ? $"SAFE|Craftimizer 2.11 已驗證固定品質配方可完成；{details}"
+                    : $"BLOCK|Craftimizer 2.11 未能完成固定品質配方；{details}";
+            }
+
             var qualityPercent = craft.CraftQualityMax > 0
                 ? Math.Clamp(step.Quality * 100 / craft.CraftQualityMax, 0, 100)
                 : 0;
-            return Simulator.Status(craft, step) == Simulator.CraftStatus.SucceededMaxQuality
+            var maxQuality = Simulator.Status(craft, step) == Simulator.CraftStatus.SucceededMaxQuality;
+            if (maxQuality && validatedPlan != null)
+                CraftimizerSolver.CacheValidatedPlan(craft, validatedPlan);
+            return maxQuality
                 ? $"SAFE|Craftimizer 2.11 保證 HQ（0 初始品質模擬達到 100%）；{details}"
                 : $"BLOCK|Craftimizer 2.11 無法保證 HQ（模擬品質 {qualityPercent}%）；{details}";
         }
