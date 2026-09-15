@@ -178,6 +178,7 @@ namespace Artisan.RawInformation
                 Condition.Malleable => LuminaSheets.AddonSheet[13455].Text.ToString(),
                 Condition.Primed => LuminaSheets.AddonSheet[13454].Text.ToString(),
                 Condition.GoodOmen => LuminaSheets.AddonSheet[14214].Text.ToString(),
+                Condition.Robust => "堅韌",
                 Condition.Unknown => "Unknown",
                 _ => throw new System.NotImplementedException()
             };

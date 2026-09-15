@@ -32,7 +32,7 @@ public sealed class CraftimizerSolverDefinition : ISolverDefinition
 }
 
 /// <summary>
-/// Adapts the API13/net9 Craftimizer 2.8 solver core to Artisan. Craftimizer
+/// Adapts the API13/net9 Craftimizer 2.11 solver core to Artisan. Craftimizer
 /// never executes an action; it only calculates one recommendation at a time.
 /// Artisan remains responsible for crafting state, action execution, retries,
 /// Endurance, lists, IPC, and mission flow.
@@ -135,7 +135,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
                 return FallbackForCraft(step, artisanRecommendation, $"recommended unusable action {action}: {reason}");
 
             Svc.Log.Debug($"[Craftimizer Solver] Step {step.Index}: {action} mapped to {mapped} in {stopwatch.ElapsedMilliseconds} ms");
-            return new(mapped, $"Craftimizer 2.8；計算耗時 {stopwatch.ElapsedMilliseconds} 毫秒");
+            return new(mapped, $"Craftimizer 2.11；Next Action 計算耗時 {stopwatch.ElapsedMilliseconds} 毫秒");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -206,13 +206,19 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         var forks = Math.Clamp(Environment.ProcessorCount, 4, 8);
         var config = CraftimizerSolverConfig.SynthHelperDefault with
         {
-            // We need one recommendation, not an entire stale rotation.
-            Algorithm = CraftimizerSolverAlgorithm.OneshotForked,
-            Iterations = 48_000,
-            MaxIterations = 256_000,
+            // Craftimizer 2.11 concentrates a bounded wall-clock budget on
+            // the best next action instead of producing a stale full macro.
+            Algorithm = CraftimizerSolverAlgorithm.NextActionForked,
+            MaxTimeMs = 1800,
+            Iterations = 1_000_000,
+            MaxIterations = 1_000_000,
             MaxThreadCount = threads,
             ForkCount = forks,
             FurcatedActionCount = Math.Max(2, forks / 2),
+            PruneActionCount = threads,
+            ScreenBudgetPercent = 30,
+            QualityTargetPercent = 100,
+            QualityTargetToMaxCollectability = false,
             // MaxStepCount is an absolute action-count ceiling. The first
             // prototype incorrectly kept it at 40 even when resuming at step
             // 30+, making valid Cosmic solutions mathematically unreachable.
@@ -308,6 +314,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         ArtisanCondition.Malleable => Craftimizer.Simulator.Condition.Malleable,
         ArtisanCondition.Primed => Craftimizer.Simulator.Condition.Primed,
         ArtisanCondition.GoodOmen => Craftimizer.Simulator.Condition.GoodOmen,
+        ArtisanCondition.Robust => Craftimizer.Simulator.Condition.Robust,
         _ => Craftimizer.Simulator.Condition.Normal,
     };
 

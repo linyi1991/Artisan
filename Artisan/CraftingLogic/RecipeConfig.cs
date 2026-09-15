@@ -91,7 +91,7 @@ public class RecipeConfig
         if (comment.StartsWith("Craftimizer fallback for craft: ", StringComparison.Ordinal))
             return "Craftimizer 無法繼續，已改用 Artisan 備援；原因：" +
                    LocalizeCraftimizerReason(comment["Craftimizer fallback for craft: ".Length..]);
-        if (comment.StartsWith("Craftimizer 2.8", StringComparison.Ordinal))
+        if (comment.StartsWith("Craftimizer 2.", StringComparison.Ordinal))
             return comment;
 
         // Other Artisan solvers often return internal English branch labels.

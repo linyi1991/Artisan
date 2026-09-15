@@ -488,6 +488,7 @@ public static class Simulator
         Condition.Excellent => Condition.Poor,
         Condition.Poor => Condition.Normal,
         Condition.GoodOmen => Condition.Good,
+        Condition.Robust => Condition.Sturdy,
         _ => GetTransitionByRoll(craft, step, roll)
     };
 
@@ -516,6 +517,7 @@ public static class Simulator
             Condition.Malleable => ConditionFlags.Malleable,
             Condition.Primed => ConditionFlags.Primed,
             Condition.GoodOmen => ConditionFlags.GoodOmen,
+            Condition.Robust => ConditionFlags.Robust,
             Condition.Unknown => throw new NotImplementedException(),
         };
     }
