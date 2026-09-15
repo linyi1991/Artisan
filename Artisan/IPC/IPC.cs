@@ -287,6 +287,11 @@ namespace Artisan.IPC
             list.Recipes.Add(new ListItem { ID = recipeId, Quantity = amount });
             CraftingListUI.selectedList = list;
 
+            Svc.Log.Information(
+                $"Allagan craft request: recipe={recipeId}, crafts={amount}, yield={recipe.Value.AmountResult}, " +
+                $"outputs={amount * recipe.Value.AmountResult}, includeSubcrafts={includeSubcrafts}, " +
+                $"retainerIpcReady={RetainerInfo.ATools}");
+
             if (preferCraftimizer)
                 ApplyCraftimizerToList(list);
 

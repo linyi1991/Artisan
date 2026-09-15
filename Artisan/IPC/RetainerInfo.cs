@@ -55,7 +55,19 @@ namespace Artisan.IPC
         {
             get
             {
-                return AToolsInstalled && (DalamudReflector.TryGetDalamudPlugin("Allagan Tools", out var at, false, true) || DalamudReflector.TryGetDalamudPlugin("InventoryTools", out var it, false, true)) && _IsInitialized != null && _IsInitialized.InvokeFunc();
+                try
+                {
+                    // The IPC provider is the authoritative readiness signal.
+                    // Dev-plugin display/internal names can differ across
+                    // Dalamud builds, which previously made a loaded
+                    // InventoryTools instance fail the reflection-name gate
+                    // and caused Allagan MAX lists to skip retainer retrieval.
+                    return _IsInitialized?.InvokeFunc() == true;
+                }
+                catch
+                {
+                    return false;
+                }
             }
         }
 
