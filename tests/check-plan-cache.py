@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory(prefix='artisan-cache-regression-') as temp:
     (out / 'Check.csproj').write_text('''<Project Sdk="Microsoft.NET.Sdk">
 <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework>
 <Nullable>enable</Nullable></PropertyGroup></Project>''')
-    for source in ('CraftingLogic/State.cs', 'CraftingLogic/ValidatedCraftPlanCache.cs', 'CraftingLogic/CraftData/Condition.cs'):
+    for source in ('CraftingLogic/State.cs', 'CraftingLogic/ValidatedCraftPlanCache.cs', 'CraftingLogic/CraftPlanPreference.cs', 'CraftingLogic/CraftData/Condition.cs'):
         (out / Path(source).name).write_bytes((root / source).read_bytes())
     skills = (root / 'RawInformation/Character/Skills.cs').read_text(encoding='utf-8-sig')
     enum = skills[skills.index('    public enum Skills'):skills.index('    public static class SkillActionMap')]
@@ -64,8 +64,19 @@ class Program {
         var nq=craft with {InitialQuality=0};
         cache.Store(nq,11400,new[]{Skills.BasicTouch},new[]{step with {Quality=0}});
         Check(cache.Contains(craft,11400,out _) && cache.Contains(nq,11400,out _),"HQ and NQ coexist");
+        Check(cache.TryGetPlan(craft,11400,out var rotation) && rotation.Count==2,"complete plan reused without search");
+        ((Skills[])rotation)[0]=Skills.None;
+        Check(cache.TryGetPlan(craft,11400,out rotation) && rotation[0]==Skills.HeartAndSoul,"returned actions detached");
         cache.Store(craft with {RecipeId=123},11400,new[]{Skills.BasicTouch},new[]{step});
         Check(!cache.Contains(craft,11400,out _) && cache.Contains(nq,11400,out _),"bounded FIFO eviction");
+        var baseline=new CraftPlanScore(true,12000,true,32);
+        Check(!new CraftPlanScore(true,10829,true,20).Improves(baseline,11400),"failed random retry cannot replace success");
+        Check(!new CraftPlanScore(false,12000,true,20).Improves(baseline,11400),"unfinished plan cannot replace success");
+        Check(!new CraftPlanScore(true,12000,false,20).Improves(baseline,11400),"risky skills cannot replace guaranteed success");
+        Check(new CraftPlanScore(true,12000,true,28).Improves(baseline,11400),"same quality fewer steps wins");
+        Check(!new CraftPlanScore(true,11400,true,28).Improves(baseline,11400),"fewer steps cannot silently reduce quality");
+        Check(baseline.Improves(new(true,10829,true,20),11400),"bounded solver can rescue failed baseline");
+        Check(baseline.Improves(new(true,12000,false,20),11400),"guaranteed solution improves optimistic estimate");
         Console.WriteLine($"Plan cache regression: {checks} passed (production source; no game runtime)");
     }
 }

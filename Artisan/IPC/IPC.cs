@@ -15,6 +15,7 @@ using OtterGui;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -529,7 +530,7 @@ namespace Artisan.IPC
                 _ => (Name: "最高", Target: craft.CraftQualityMin3),
             };
             var targetQuality = isCollectable ? collectableMode.Target : craft.CraftHQ ? craft.CraftQualityMax : craft.CraftRequiredQuality;
-            var details = $"Artisan 輕量同步求解（Craftimizer 橋接）；目標職業：{targetJobName}；基礎裝備：作業 {baseCraftsmanship}、加工 {baseControl}、CP {baseCp}；" +
+            var details = $"Artisan 基準＋Craftimizer 有界方案擇優；目標職業：{targetJobName}；基礎裝備：作業 {baseCraftsmanship}、加工 {baseControl}、CP {baseCp}；" +
                 $"預先套用指定食藥後：作業 {craft.StatCraftsmanship}、加工 {craft.StatControl}、CP {craft.StatCP}；食物：{config.FoodName}；藥水：{config.PotionName}；" +
                 $"HQ 材料：{hqPlan.Description}；起始品質：{hqPlan.StartingQuality}/{craft.CraftQualityMax}" +
                 (isCollectable ? $"；收藏品目標：{collectableMode.Name}（{collectableMode.Target}）" : string.Empty);
@@ -576,8 +577,10 @@ namespace Artisan.IPC
             // segments. The solver runs once per distinct starting quality,
             // never once per requested craft.
             var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var task = SimulateCraftimizerExecutionAsync(solver, craft, hqPlan, isCollectable,
-                collectableMode.Target, collectableMode.Name, details, cancellation.Token);
+            // WaitAsync can complete synchronously. Explicitly leave framework
+            // after capturing game-backed inputs; no search runs inside Draw/IPC.
+            var task = Task.Run(() => SimulateCraftimizerExecutionAsync(solver, craft, hqPlan, isCollectable,
+                collectableMode.Target, collectableMode.Name, details, cancellation.Token), cancellation.Token);
             ReplacePrediction(recipeId, craft, targetQuality, amount, useAvailableHq, includeRetainers, hqPlan,
                 cancellation, task);
             return task;
@@ -723,18 +726,65 @@ namespace Artisan.IPC
             await CraftimizerPredictionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                // Match Artisan's simulator panel exactly: CraftimizerSolver.Solve
-                // intentionally delegates synchronous/offline simulation to its
-                // lightweight Artisan fallback. Do not run MCTS here. Each
-                // distinct HQ/NQ starting quality is solved once regardless of
-                // whether the requested quantity is 1 or 9999.
-                foreach (var group in hqPlan.Segments.GroupBy(segment => segment.StartingQuality))
+                // The simulator's existing lightweight plan is the baseline,
+                // not proof that MCTS found the best plan. Compare one bounded
+                // Craftimizer candidate per new input and keep only improvements.
+                // The complete preflight shares 6s / 200k iterations, not N times
+                // these limits. Existing successful plans require no new search.
+                var groups = hqPlan.Segments.GroupBy(segment => segment.StartingQuality).ToArray();
+                var target = isCollectable ? collectableTarget : craft.CraftHQ ? craft.CraftQualityMax : craft.CraftRequiredQuality;
+                using var comparison = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                comparison.CancelAfter(TimeSpan.FromSeconds(6));
+                var comparisonWatch = Stopwatch.StartNew();
+                var perGroupTime = Math.Min(1500, Math.Max(1, 6000 / groups.Length));
+                var perGroupIterations = Math.Min(100_000, Math.Max(1, 200_000 / groups.Length));
+                foreach (var group in groups)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var segmentCraft = craft with { InitialQuality = group.Key };
-                    if (!TryBuildArtisanSimulatorPlan(solver, segmentCraft, group.Key, cancellationToken,
-                            out var step, out var plan, out var allActionsGuaranteed))
-                        return $"BLOCK|Artisan 同步模擬器未能完成起始品質 {group.Key} 的製作；{details}";
+                    var source = "Artisan baseline";
+                    var baselineComplete = TryBuildArtisanSimulatorPlan(solver, segmentCraft, group.Key, cancellationToken,
+                        out var step, out var plan, out var allActionsGuaranteed);
+                    var cached = false;
+                    if (CraftimizerSolver.TryGetValidatedPlan(segmentCraft, target, out var cachedPlan) &&
+                        TryEvaluatePlan(segmentCraft, cachedPlan, cancellationToken, out var cachedStep, out var cachedGuaranteed))
+                    {
+                        // Re-evaluate, don't re-search. Quantity is deliberately
+                        // absent from the plan cache key.
+                        cached = true;
+                        step = cachedStep;
+                        allActionsGuaranteed = cachedGuaranteed;
+                        plan = cachedPlan;
+                        baselineComplete = true;
+                        source = "validated cache";
+                    }
+                    if (!cached && CraftimizerSolver.SupportsValidatedPlan(segmentCraft) && solver is CraftimizerSolver craftimizer &&
+                        !comparison.IsCancellationRequested && comparisonWatch.ElapsedMilliseconds < 6000)
+                    {
+                        try
+                        {
+                            var candidate = await craftimizer.SolvePreviewPlanAsync(segmentCraft,
+                                Simulator.CreateInitial(segmentCraft, group.Key), comparison.Token,
+                                Math.Min(perGroupTime, (int)(6000 - comparisonWatch.ElapsedMilliseconds)),
+                                perGroupIterations).ConfigureAwait(false);
+                            if (candidate != null && TryEvaluatePlan(segmentCraft, candidate, cancellationToken,
+                                    out var candidateStep, out var candidateGuaranteed) &&
+                                new CraftPlanScore(true, candidateStep.Quality, candidateGuaranteed, candidate.Count)
+                                    .Improves(new(baselineComplete && step.Progress >= craft.CraftProgress,
+                                        step.Quality, allActionsGuaranteed, plan.Count), target))
+                            {
+                                step = candidateStep;
+                                plan = candidate;
+                                allActionsGuaranteed = candidateGuaranteed;
+                                source = "bounded Craftimizer";
+                            }
+                        }
+                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                        {
+                            // Optional optimization timed out: it must not veto
+                            // a successful baseline or start another worker.
+                        }
+                    }
 
                     if (allActionsGuaranteed && MeetsPreflightTarget(segmentCraft, step, isCollectable, collectableTarget))
                         CraftimizerSolver.CacheValidatedPlan(segmentCraft, plan,
@@ -742,7 +792,7 @@ namespace Artisan.IPC
                     var craftCount = group.Sum(segment => segment.CraftCount);
                     outcomes.Add((group.Key, craftCount, step, plan.Count, allActionsGuaranteed));
                     Svc.Log.Information(
-                        $"[Craftimizer Preflight] Artisan simulator parity: startingQuality={group.Key}, " +
+                        $"[Craftimizer Preflight] Selected {source}: startingQuality={group.Key}, " +
                         $"crafts={craftCount}, actions={plan.Count}, allGuaranteed={allActionsGuaranteed}, " +
                         $"result={step.Progress}/{step.Quality}");
                 }
@@ -776,14 +826,32 @@ namespace Artisan.IPC
             if (isCollectable)
             {
                 var minimum = outcomes.Min(outcome => outcome.Step.Quality);
-                return $"SAFE|Artisan／Craftimizer 同步模擬全部 {outcomes.Count} 種 HQ/NQ 配料皆達標：" +
+                return $"SAFE|Artisan／Craftimizer 驗證全部 {outcomes.Count} 種 HQ/NQ 配料皆達標：" +
                     $"{collectableName}檔，最低收藏價值 {minimum}（門檻 {collectableTarget}）；{reliability}；{details}";
             }
 
             if (!craft.CraftHQ)
-                return $"SAFE|Artisan／Craftimizer 同步模擬固定品質配方可完成；{reliability}；{details}";
+                return $"SAFE|Artisan／Craftimizer 驗證固定品質配方可完成；{reliability}；{details}";
 
-            return $"SAFE|Artisan／Craftimizer 同步模擬全部 {outcomes.Count} 種 HQ/NQ 配料皆估計達到 100%；{reliability}；{details}";
+            return $"SAFE|Artisan／Craftimizer 驗證全部 {outcomes.Count} 種 HQ/NQ 配料皆估計達到 100%；{reliability}；{details}";
+        }
+
+        private static bool TryEvaluatePlan(CraftState craft, IReadOnlyList<Skills> plan,
+            CancellationToken cancellationToken, out StepState step, out bool guaranteed)
+        {
+            step = Simulator.CreateInitial(craft, craft.InitialQuality);
+            guaranteed = true;
+            if (plan.Count is 0 or > 128) return false;
+            foreach (var action in plan)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (Simulator.Status(craft, step) != Simulator.CraftStatus.InProgress) return false;
+                guaranteed &= Simulator.GetSuccessRate(step, action) >= 1.0;
+                var (result, next) = Simulator.Execute(craft, step, action, 0, 1);
+                if (result != Simulator.ExecuteResult.Succeeded) return false;
+                step = next;
+            }
+            return step.Progress >= craft.CraftProgress;
         }
 
         private static bool MeetsPreflightTarget(CraftState craft, StepState step,

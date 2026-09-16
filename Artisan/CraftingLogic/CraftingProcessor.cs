@@ -43,6 +43,8 @@ public static class CraftingProcessor
     private static Lumina.Excel.Sheets.Recipe _pendingRecipe;
     private static CraftState? _pendingCraft;
     private static StepState? _pendingStep;
+    private static long? _craftAllocatedAtStart;
+    private static long _craftStartedAt;
 
     public static void Setup()
     {
@@ -174,6 +176,9 @@ public static class CraftingProcessor
     private static void OnCraftStarted(Lumina.Excel.Sheets.Recipe recipe, CraftState craft, StepState initialStep, bool trial)
     {
         CancelPendingRecommendation();
+        _craftStartedAt = Stopwatch.GetTimestamp();
+        _craftAllocatedAtStart = GC.GetTotalAllocatedBytes(false);
+        LogRuntimeMemory(recipe.RowId, "start", 0);
         _nextRec = new();
         Svc.Log.Debug($"[CProc] OnCraftStarted #{recipe.RowId} '{recipe.ItemResult.Value.Name.ToDalamudString()}' (trial={trial}) (cosmic={craft.IsCosmic}) (IQ={craft.InitialQuality}) (PQ={craft.CraftProgress}/{craft.CraftQualityMax})");
         if (_expectedRecipe != null && _expectedRecipe.Value != recipe.RowId)
@@ -239,6 +244,15 @@ public static class CraftingProcessor
         // Clear a worker even when the solver was reset by an earlier error.
         CancelPendingRecommendation();
         Svc.Log.Debug($"[CProc] OnCraftFinished #{recipe.RowId} (cancel={cancelled}, solver={ActiveSolver.Name}): {finalStep}");
+        if (_craftAllocatedAtStart is { } allocated)
+        {
+            LogRuntimeMemory(recipe.RowId, "finish", Math.Max(0, GC.GetTotalAllocatedBytes(false) - allocated));
+            Svc.Log.Information($"[Craft Result] recipe={recipe.RowId}, cancelled={cancelled}, " +
+                $"progress={finalStep.Progress}/{craft.CraftProgress}, quality={finalStep.Quality}/{craft.CraftQualityMax}, " +
+                $"durability={finalStep.Durability}, cp={finalStep.RemainingCP}, steps={finalStep.Index}, " +
+                $"elapsed={Stopwatch.GetElapsedTime(_craftStartedAt).TotalSeconds:F1}s");
+            _craftAllocatedAtStart = null;
+        }
         if (_activeSolver == null)
         {
             _nextRec = new();
@@ -288,6 +302,17 @@ public static class CraftingProcessor
         }
 
         PublishRecommendation(recipe, craft, step, _activeSolver!.Solve(craft, step));
+    }
+
+    private static void LogRuntimeMemory(uint recipeId, string phase, long allocated)
+    {
+        // Cheap observations, no forced collection. This runtime is shared by
+        // all Dalamud plugins; neither value is Artisan-exclusive nor native RSS.
+        var memory = GC.GetGCMemoryInfo();
+        const double mib = 1024 * 1024;
+        Svc.Log.Information($"[Craft Resources] recipe={recipeId}, phase={phase}, scope=shared-dotnet-runtime, " +
+            $"managedEstimateMiB={GC.GetTotalMemory(false) / mib:F1}, heapAtLastGCMiB={memory.HeapSizeBytes / mib:F1}, " +
+            $"committedMiB={memory.TotalCommittedBytes / mib:F1}, allocatedDuringCraftMiB={allocated / mib:F1}");
     }
 
     private static void PublishRecommendation(Lumina.Excel.Sheets.Recipe recipe, CraftState craft, StepState step, Solver.Recommendation recommendation)

@@ -47,6 +47,20 @@ internal sealed class ValidatedCraftPlanCache(int capacity)
         }
     }
 
+    public bool TryGetPlan(CraftState craft, int targetQuality, out IReadOnlyList<Skills> actions)
+    {
+        lock (sync)
+        {
+            if (plans.TryGetValue(CreateKey(craft, targetQuality), out var plan))
+            {
+                actions = plan.Actions.ToArray();
+                return true;
+            }
+            actions = Array.Empty<Skills>();
+            return false;
+        }
+    }
+
     public bool TryGetAction(CraftState craft, int targetQuality, StepState step, out Skills action, out int count)
     {
         action = Skills.None;

@@ -44,7 +44,8 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
     private static readonly TimeSpan RecommendationTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(5);
     private static readonly ValidatedCraftPlanCache ValidatedPlans = new(MaxCachedPlans);
-    private static readonly SemaphoreSlim LiveSearchGate = new(1, 1);
+    // Preview and live decisions share one worker allowance, not one each.
+    private static readonly SemaphoreSlim SearchGate = new(1, 1);
     private readonly ArtisanSolver _fallback;
     private bool _reportedCosmicPolicy;
     private readonly CraftState _initialCraft;
@@ -80,6 +81,12 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
     {
         actionCount = 0;
         return SupportsValidatedPlan(craft) && ValidatedPlans.Contains(craft, PlanTarget(craft), out actionCount);
+    }
+
+    public static bool TryGetValidatedPlan(CraftState craft, int targetQuality, out IReadOnlyList<Skills> plan)
+    {
+        plan = Array.Empty<Skills>();
+        return SupportsValidatedPlan(craft) && ValidatedPlans.TryGetPlan(craft, targetQuality, out plan);
     }
 
     public static void CacheValidatedPlan(CraftState craft, IReadOnlyList<Skills> plan, int targetQuality)
@@ -200,7 +207,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             $"materialMiracle={materialMiracleSeconds:0.0}s, maxSteps={inputState.ActionCount + 48}");
         // A cancelled search may still be unwinding. Never queue or overlap a
         // second forest; hold this gate until the worker has actually finished.
-        if (!LiveSearchGate.Wait(0))
+        if (!SearchGate.Wait(0))
             return Task.FromResult(FallbackForCraft(step, artisanRecommendation, "previous search still running"));
         return Task.Run(async () =>
         {
@@ -209,7 +216,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
                 cancellationToken.ThrowIfCancellationRequested();
                 return await CalculateRecommendation(craft, step, inputState, artisanRecommendation, cancellationToken).ConfigureAwait(false);
             }
-            finally { LiveSearchGate.Release(); }
+            finally { SearchGate.Release(); }
         });
     }
 
@@ -221,20 +228,36 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
     public Task<IReadOnlyList<Skills>?> SolvePreviewPlanAsync(
         CraftState craft,
         StepState step,
-        CancellationToken cancellationToken) =>
-        Task.Run(() => CalculatePreviewPlanAsync(craft, step, cancellationToken), cancellationToken);
+        CancellationToken cancellationToken,
+        int maxTimeMs = 1500,
+        int maxIterations = 100_000) =>
+        Task.Run(async () =>
+        {
+            await SearchGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                return await CalculatePreviewPlanAsync(craft, step, cancellationToken,
+                    maxTimeMs, maxIterations).ConfigureAwait(false);
+            }
+            finally { SearchGate.Release(); }
+        }, cancellationToken);
 
     private async Task<IReadOnlyList<Skills>?> CalculatePreviewPlanAsync(
         CraftState craft,
         StepState step,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, int maxTimeMs, int maxIterations)
     {
         var stopwatch = Stopwatch.StartNew();
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(PreviewTimeout);
 
         var inputState = BuildSimulationState(craft, step, 0, ActionProc.None);
-        var config = CreatePreviewSolverConfig(craft, inputState);
+        var config = CreatePreviewSolverConfig(craft, inputState) with
+        {
+            MaxTimeMs = Math.Clamp(maxTimeMs, 1, 1500),
+            Iterations = Math.Clamp(maxIterations, 1, 100_000),
+            MaxIterations = Math.Clamp(maxIterations, 1, 100_000),
+        };
         using var solver = new CraftimizerCoreSolver(config, inputState) { Token = timeout.Token };
         solver.OnLog += message => Svc.Log.Verbose($"[Craftimizer Preview] {message}");
         solver.OnWarn += message => Svc.Log.Warning($"[Craftimizer Preview] {message}");
@@ -243,7 +266,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         {
             Svc.Log.Information(
                 $"[Craftimizer Preview] Starting one bounded solve: maxTime={config.MaxTimeMs}ms, " +
-                $"threads={config.MaxThreadCount}, maxSteps={config.MaxStepCount}");
+                $"threads={config.MaxThreadCount}, maxSteps={config.MaxStepCount}, iterations={config.MaxIterations}");
             solver.Start();
             var solution = await solver.GetSafeTask().ConfigureAwait(false);
             if (solution == null || solution.Value.Actions.Count == 0)
@@ -263,12 +286,17 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
 
             Svc.Log.Information(
                 $"[Craftimizer Preview] Completed one bounded solve in {stopwatch.ElapsedMilliseconds}ms " +
-                $"with {mapped.Count} actions");
+                $"with {mapped.Count} actions, iterations={solver.SearchIterations}");
             return mapped;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             Svc.Log.Warning($"[Craftimizer Preview] Timed out after {stopwatch.ElapsedMilliseconds}ms");
+            return null;
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            Svc.Log.Warning(e, "[Craftimizer Preview] Bounded comparison failed; preserving the validated baseline");
             return null;
         }
     }
