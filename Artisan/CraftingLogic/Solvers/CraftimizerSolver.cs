@@ -3,7 +3,6 @@ using Craftimizer.Simulator.Actions;
 using ECommons.DalamudServices;
 using Artisan.GameInterop;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -44,8 +43,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
     private const int MaxCachedPlans = 32;
     private static readonly TimeSpan RecommendationTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(5);
-    private static readonly ConcurrentDictionary<PlanKey, Skills[]> ValidatedPlans = new();
-    private static readonly ConcurrentQueue<PlanKey> ValidatedPlanOrder = new();
+    private static readonly ValidatedCraftPlanCache ValidatedPlans = new(MaxCachedPlans);
     private static readonly SemaphoreSlim LiveSearchGate = new(1, 1);
     private readonly ArtisanSolver _fallback;
     private bool _reportedCosmicPolicy;
@@ -56,31 +54,8 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
     private string? _fallbackOnlyReason;
     private bool _reportedCachedPlan;
 
-    private readonly record struct PlanKey(
-        uint RecipeId,
-        int StatCraftsmanship,
-        int StatControl,
-        int StatCP,
-        int StatLevel,
-        bool UnlockedManipulation,
-        bool Specialist,
-        bool SplendorCosmic,
-        bool CraftHQ,
-        bool CraftCollectible,
-        bool CraftExpert,
-        int CraftLevel,
-        int CraftDurability,
-        int CraftProgress,
-        int CraftProgressDivider,
-        int CraftProgressModifier,
-        int CraftQualityDivider,
-        int CraftQualityModifier,
-        int CraftQualityMax,
-        int CraftQualityMin1,
-        int CraftQualityMin2,
-        int CraftQualityMin3,
-        int CraftRequiredQuality,
-        ArtisanConditionFlags ConditionFlags);
+    private StepState? _fallbackStep;
+    private Recommendation _fallbackRecommendation;
 
     public CraftimizerSolver(CraftState craft)
     {
@@ -92,45 +67,67 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
 
     public static bool SupportsValidatedPlan(CraftState craft) => !craft.CraftExpert && !craft.IsCosmic;
 
+    private static int PlanTarget(CraftState craft) => craft.CraftCollectible
+        ? P.Config.SolverCollectibleMode switch
+        {
+            1 => craft.CraftQualityMin1,
+            2 => craft.CraftQualityMin2,
+            _ => craft.CraftQualityMin3,
+        }
+        : craft.CraftHQ ? craft.CraftQualityMax : craft.CraftRequiredQuality;
+
     public static bool HasValidatedPlan(CraftState craft, out int actionCount)
     {
-        if (SupportsValidatedPlan(craft) && ValidatedPlans.TryGetValue(CreatePlanKey(craft), out var plan))
-        {
-            actionCount = plan.Length;
-            return true;
-        }
-
         actionCount = 0;
-        return false;
+        return SupportsValidatedPlan(craft) && ValidatedPlans.Contains(craft, PlanTarget(craft), out actionCount);
     }
 
-    public static void CacheValidatedPlan(CraftState craft, IReadOnlyList<Skills> plan)
+    public static void CacheValidatedPlan(CraftState craft, IReadOnlyList<Skills> plan, int targetQuality)
     {
         if (!SupportsValidatedPlan(craft) || plan.Count == 0)
             return;
-
-        var key = CreatePlanKey(craft);
-        var copy = plan.ToArray();
-        if (ValidatedPlans.TryAdd(key, copy))
-            ValidatedPlanOrder.Enqueue(key);
-        else
-            ValidatedPlans[key] = copy;
-
-        while (ValidatedPlans.Count > MaxCachedPlans && ValidatedPlanOrder.TryDequeue(out var oldest))
-            ValidatedPlans.TryRemove(oldest, out _);
-
+        var step = Simulator.CreateInitial(craft, craft.InitialQuality);
+        var before = new List<StepState>(plan.Count);
+        foreach (var action in plan)
+        {
+            if (Simulator.Status(craft, step) != Simulator.CraftStatus.InProgress ||
+                Simulator.GetSuccessRate(step, action) < 1.0)
+                return;
+            before.Add(step);
+            var (result, next) = Simulator.Execute(craft, step, action, 0, 1);
+            if (result != Simulator.ExecuteResult.Succeeded)
+                return;
+            step = next;
+        }
+        if (step.Progress < craft.CraftProgress || step.Quality < targetQuality)
+            return;
+        ValidatedPlans.Store(craft, targetQuality, plan, before);
         Svc.Log.Information(
-            $"[Craftimizer Plan Cache] Stored validated recipe {craft.RecipeId} plan with {plan.Count} actions; " +
-            "bulk repetitions will replay it without another MCTS solve");
+            $"[Craftimizer Plan Cache] Stored recipe {craft.RecipeId}, startingQuality={craft.InitialQuality}, " +
+            $"target={targetQuality}, actions={plan.Count}; validated state replay, no repeat MCTS");
     }
 
     // Offline Artisan simulations are synchronous. Use the existing safe
     // Artisan solver there; live crafting is routed through SolveAsync.
     public override Recommendation Solve(CraftState craft, StepState step) =>
-        _fallback.Solve(craft, step) with { Comment = "預覽模擬使用 Artisan 安全備援" };
+        SolveFallback(craft, step, GetComboState(step)) with { Comment = "預覽模擬使用 Artisan 輕量求解" };
+
+    private Recommendation SolveFallback(CraftState craft, StepState step, ActionProc comboState)
+    {
+        // A watchdog must reuse this step's recommendation rather than mutate
+        // the stateful Standard/Expert solver a second time.
+        if (_fallbackStep == step)
+            return _fallbackRecommendation;
+        var normalized = step.PrevComboAction == Skills.StandardTouch && comboState != ActionProc.AdvancedTouch
+            ? step with { PrevComboAction = Skills.None } : step;
+        _fallbackRecommendation = _fallback.Solve(craft, normalized);
+        _fallbackStep = step with { };
+        return _fallbackRecommendation;
+    }
 
     public Task<Recommendation> SolveAsync(CraftState craft, StepState step, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var comboState = GetComboState(step);
 
         // Material Miracle is a Cosmic-only duty action that Craftimizer does
@@ -139,10 +136,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         // The live game only discounts Advanced Touch after the complete
         // Basic -> Standard chain. Older Artisan treats every Standard Touch
         // as a combo starter, so clear that stale marker for fallback solving.
-        var fallbackStep = step.PrevComboAction == Skills.StandardTouch && comboState != ActionProc.AdvancedTouch
-            ? step with { PrevComboAction = Skills.None }
-            : step;
-        var artisanRecommendation = _fallback.Solve(craft, fallbackStep);
+        var artisanRecommendation = SolveFallback(craft, step, comboState);
         if (_fallbackOnlyReason != null)
             return Task.FromResult(artisanRecommendation with
             {
@@ -177,25 +171,10 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         // retain the existing state-aware path below.
         if (SupportsValidatedPlan(craft))
         {
-            if (!ValidatedPlans.TryGetValue(CreatePlanKey(craft), out var plan))
-                return Task.FromResult(artisanRecommendation with
-                {
-                    Comment = "找不到相符的 Craftimizer 安全快取；改用 Artisan 即時備援",
-                });
-
-            // The offline plan is validated from Normal condition. A live
-            // Good/Excellent/Poor edge can change quality enough to make a
-            // later fixed action sequence unsafe, so hand the remainder of
-            // that craft to Artisan's lightweight state-aware solver.
-            if (step.Condition != ArtisanCondition.Normal)
+            if (!ValidatedPlans.TryGetAction(craft, PlanTarget(craft), step, out var cachedAction, out var planLength))
                 return Task.FromResult(FallbackForCraft(step, artisanRecommendation,
-                    $"live condition changed to {step.Condition}"));
+                    "cached plan inputs or live state did not match"));
 
-            var planIndex = step.Index - 1;
-            if (planIndex < 0 || planIndex >= plan.Length)
-                return Task.FromResult(FallbackForCraft(step, artisanRecommendation, "cached plan step was unavailable"));
-
-            var cachedAction = plan[planIndex];
             if (Simulator.CannotUseAction(craft, step, cachedAction, out var cachedReason))
                 return Task.FromResult(FallbackForCraft(step, artisanRecommendation,
                     $"cached action {cachedAction} was unusable: {cachedReason}"));
@@ -204,10 +183,10 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             {
                 _reportedCachedPlan = true;
                 Svc.Log.Information(
-                    $"[Craftimizer Plan Cache] Replaying validated recipe {craft.RecipeId} plan ({plan.Length} actions); no live MCTS solves");
+                    $"[Craftimizer Plan Cache] Replaying validated recipe {craft.RecipeId} plan ({planLength} actions); no live MCTS solves");
             }
             return Task.FromResult(new Recommendation(cachedAction,
-                $"Craftimizer 2.11 安全快取；步驟 {step.Index}/{plan.Length}"));
+                $"Craftimizer 2.11 安全快取；步驟 {step.Index}/{planLength}"));
         }
 
         var materialMiracleSeconds = step.MaterialMiracleActive
@@ -343,10 +322,7 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
 
     public Recommendation RecoverTimedOutRecommendation(CraftState craft, StepState step)
     {
-        var combo = GetComboState(step);
-        var fallbackStep = step.PrevComboAction == Skills.StandardTouch && combo != ActionProc.AdvancedTouch
-            ? step with { PrevComboAction = Skills.None } : step;
-        return FallbackForCraft(step, _fallback.Solve(craft, fallbackStep), "timed out");
+        return FallbackForCraft(step, SolveFallback(craft, step, GetComboState(step)), "timed out");
     }
 
     private Recommendation FallbackForCraft(StepState step, Recommendation artisanRecommendation, string reason)
@@ -364,6 +340,10 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
     {
         if (reason == "timed out")
             return "計算逾時";
+        if (reason == "cached plan inputs or live state did not match")
+            return "快取輸入或目前製作狀態不同";
+        if (reason == "previous search still running")
+            return "上一個搜尋尚未結束";
         if (reason == "returned no solution")
             return "找不到可行解";
         if (reason.StartsWith("could not map action ", StringComparison.Ordinal))
@@ -372,32 +352,6 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             return "建議技能目前無法使用";
         return "計算發生錯誤";
     }
-
-    private static PlanKey CreatePlanKey(CraftState craft) => new(
-        craft.RecipeId,
-        craft.StatCraftsmanship,
-        craft.StatControl,
-        craft.StatCP,
-        craft.StatLevel,
-        craft.UnlockedManipulation,
-        craft.Specialist,
-        craft.SplendorCosmic,
-        craft.CraftHQ,
-        craft.CraftCollectible,
-        craft.CraftExpert,
-        craft.CraftLevel,
-        craft.CraftDurability,
-        craft.CraftProgress,
-        craft.CraftProgressDivider,
-        craft.CraftProgressModifier,
-        craft.CraftQualityDivider,
-        craft.CraftQualityModifier,
-        craft.CraftQualityMax,
-        craft.CraftQualityMin1,
-        craft.CraftQualityMin2,
-        craft.CraftQualityMin3,
-        craft.CraftRequiredQuality,
-        craft.ConditionFlags);
 
     private ActionProc GetComboState(StepState step)
     {

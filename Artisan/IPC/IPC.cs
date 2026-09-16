@@ -1,4 +1,4 @@
-﻿using Artisan.Autocraft;
+using Artisan.Autocraft;
 using Artisan.CraftingLists;
 using Artisan.CraftingLogic;
 using Artisan.CraftingLogic.Solvers;
@@ -26,6 +26,9 @@ namespace Artisan.IPC
         private static bool stopCraftingRequest;
         private const string CraftimizerSolverName = "Craftimizer Recipe Solver";
         private static readonly ConcurrentDictionary<ushort, PredictionJob> CraftimizerPredictions = new();
+        private const int MaxPredictionJobs = 32;
+        private static readonly ConcurrentQueue<ushort> PredictionOrder = new();
+        private static bool disposed;
         private static readonly SemaphoreSlim CraftimizerPredictionGate = new(1, 1);
         private static readonly Dictionary<uint, (string Type, int Flavour)> AllaganSolverRestore = new();
         private static readonly HashSet<uint> AllaganHqIngredientRecipes = new();
@@ -46,6 +49,7 @@ namespace Artisan.IPC
 
         private sealed record PredictionJob(
             CraftState Craft,
+            int TargetQuality,
             int Amount,
             bool UseAvailableHq,
             bool IncludeRetainers,
@@ -74,6 +78,7 @@ namespace Artisan.IPC
         public static ArtisanMode CurrentMode;
         internal static void Init()
         {
+            disposed = false;
             Svc.PluginInterface.GetIpcProvider<bool>("Artisan.GetEnduranceStatus").RegisterFunc(GetEnduranceStatus);
             Svc.PluginInterface.GetIpcProvider<bool, object>("Artisan.SetEnduranceStatus").RegisterAction(SetEnduranceStatus);
 
@@ -122,9 +127,11 @@ namespace Artisan.IPC
             Svc.PluginInterface.GetIpcProvider<bool>("Artisan.IsBusy").UnregisterFunc();
             Svc.PluginInterface.GetIpcProvider<uint, string, bool, object>("Artisan.ChangeSolver").UnregisterAction();
             Svc.PluginInterface.GetIpcProvider<uint, object>("Artisan.SetTempSolverBackToNormal").UnregisterAction();
+            disposed = true;
             foreach (var prediction in CraftimizerPredictions.Values)
-                prediction.Cancellation.Cancel();
+                CancelPrediction(prediction);
             CraftimizerPredictions.Clear();
+            PredictionOrder.Clear();
             AllaganHqIngredientRecipes.Clear();
             RestoreAllaganSolvers();
         }
@@ -285,7 +292,7 @@ namespace Artisan.IPC
             var prediction = StartCraftimizerPrediction(recipeId, amount, useAvailableHq, includeRetainers, false);
             _ = prediction.ContinueWith(task =>
             {
-                if (task.IsCanceled)
+                if (task.IsCanceled || disposed)
                     return;
                 var result = task.IsFaulted
                     ? $"BLOCK|Craftimizer 2.11 HQ 預測失敗：{task.Exception?.GetBaseException().Message}"
@@ -295,6 +302,8 @@ namespace Artisan.IPC
                 // framework thread, including the BLOCK/error path.
                 Svc.Framework.RunOnTick(() =>
                 {
+                    if (disposed)
+                        return;
                     try
                     {
                         if (!result.StartsWith("SAFE|", StringComparison.Ordinal))
@@ -519,7 +528,8 @@ namespace Artisan.IPC
                 2 => (Name: "中間", Target: craft.CraftQualityMin2),
                 _ => (Name: "最高", Target: craft.CraftQualityMin3),
             };
-            var details = $"Craftimizer 2.11 Next Action；目標職業：{targetJobName}；基礎裝備：作業 {baseCraftsmanship}、加工 {baseControl}、CP {baseCp}；" +
+            var targetQuality = isCollectable ? collectableMode.Target : craft.CraftHQ ? craft.CraftQualityMax : craft.CraftRequiredQuality;
+            var details = $"Artisan 輕量同步求解（Craftimizer 橋接）；目標職業：{targetJobName}；基礎裝備：作業 {baseCraftsmanship}、加工 {baseControl}、CP {baseCp}；" +
                 $"預先套用指定食藥後：作業 {craft.StatCraftsmanship}、加工 {craft.StatControl}、CP {craft.StatCP}；食物：{config.FoodName}；藥水：{config.PotionName}；" +
                 $"HQ 材料：{hqPlan.Description}；起始品質：{hqPlan.StartingQuality}/{craft.CraftQualityMax}" +
                 (isCollectable ? $"；收藏品目標：{collectableMode.Name}（{collectableMode.Target}）" : string.Empty);
@@ -533,7 +543,7 @@ namespace Artisan.IPC
 
             if (!replaceExisting &&
                 CraftimizerPredictions.TryGetValue(recipeId, out var existing) &&
-                existing.Craft == craft &&
+                ValidatedCraftPlanCache.InputsMatch(existing.Craft, existing.TargetQuality, craft, targetQuality) &&
                 existing.Amount == amount && existing.UseAvailableHq == useAvailableHq &&
                 existing.IncludeRetainers == includeRetainers &&
                 existing.HqPlan.Description == hqPlan.Description &&
@@ -568,23 +578,37 @@ namespace Artisan.IPC
             var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             var task = SimulateCraftimizerExecutionAsync(solver, craft, hqPlan, isCollectable,
                 collectableMode.Target, collectableMode.Name, details, cancellation.Token);
-            ReplacePrediction(recipeId, craft, amount, useAvailableHq, includeRetainers, hqPlan,
-                cancellation, task, replaceExisting);
+            ReplacePrediction(recipeId, craft, targetQuality, amount, useAvailableHq, includeRetainers, hqPlan,
+                cancellation, task);
             return task;
         }
 
-        private static void ReplacePrediction(ushort recipeId, CraftState craft, int amount, bool useAvailableHq,
-            bool includeRetainers, HqIngredientPlan hqPlan, CancellationTokenSource cancellation,
-            Task<string> task, bool replaceExisting)
+        private static void CancelPrediction(PredictionJob job)
         {
-            var replacement = new PredictionJob(craft with { }, amount, useAvailableHq, includeRetainers,
-                hqPlan, cancellation, task);
-            if (replaceExisting && CraftimizerPredictions.TryRemove(recipeId, out var previous))
+            job.Cancellation.Cancel();
+            _ = job.Task.ContinueWith(t =>
             {
-                previous.Cancellation.Cancel();
-                _ = previous.Task.ContinueWith(_ => previous.Cancellation.Dispose(), TaskScheduler.Default);
-            }
+                _ = t.Exception; // observe late failures on replacement/unload
+                job.Cancellation.Dispose();
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+
+        private static void ReplacePrediction(ushort recipeId, CraftState craft, int targetQuality, int amount,
+            bool useAvailableHq, bool includeRetainers, HqIngredientPlan hqPlan,
+            CancellationTokenSource cancellation, Task<string> task)
+        {
+            var replacement = new PredictionJob(craft with { }, targetQuality, amount, useAvailableHq, includeRetainers,
+                hqPlan, cancellation, task);
+            // Every replacement retires the old job, including implicit reruns
+            // caused by inventory/stats changing at the craft button.
+            if (CraftimizerPredictions.TryRemove(recipeId, out var previous))
+                CancelPrediction(previous);
+            else
+                PredictionOrder.Enqueue(recipeId);
             CraftimizerPredictions[recipeId] = replacement;
+            while (CraftimizerPredictions.Count > MaxPredictionJobs && PredictionOrder.TryDequeue(out var oldest))
+                if (CraftimizerPredictions.TryRemove(oldest, out var expired))
+                    CancelPrediction(expired);
         }
 
         private static unsafe HqIngredientPlan BuildHqIngredientPlan(Lumina.Excel.Sheets.Recipe recipe,
@@ -707,10 +731,14 @@ namespace Artisan.IPC
                 foreach (var group in hqPlan.Segments.GroupBy(segment => segment.StartingQuality))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!TryBuildArtisanSimulatorPlan(solver, craft, group.Key, cancellationToken,
+                    var segmentCraft = craft with { InitialQuality = group.Key };
+                    if (!TryBuildArtisanSimulatorPlan(solver, segmentCraft, group.Key, cancellationToken,
                             out var step, out var plan, out var allActionsGuaranteed))
                         return $"BLOCK|Artisan 同步模擬器未能完成起始品質 {group.Key} 的製作；{details}";
 
+                    if (allActionsGuaranteed && MeetsPreflightTarget(segmentCraft, step, isCollectable, collectableTarget))
+                        CraftimizerSolver.CacheValidatedPlan(segmentCraft, plan,
+                            isCollectable ? collectableTarget : craft.CraftHQ ? craft.CraftQualityMax : craft.CraftRequiredQuality);
                     var craftCount = group.Sum(segment => segment.CraftCount);
                     outcomes.Add((group.Key, craftCount, step, plan.Count, allActionsGuaranteed));
                     Svc.Log.Information(
@@ -742,17 +770,20 @@ namespace Artisan.IPC
                 return $"BLOCK|起始品質 {failed.StartingQuality} 的固定品質配方未能完成；{details}";
             }
 
+            var reliability = outcomes.All(outcome => outcome.Guaranteed)
+                ? "技能成功率皆為 100%；實際狀態偏離時改用動態求解。"
+                : "含機率技能：這是成功分支估算，不保證每次達標；不快取固定步驟，實際採動態求解。";
             if (isCollectable)
             {
                 var minimum = outcomes.Min(outcome => outcome.Step.Quality);
                 return $"SAFE|Artisan／Craftimizer 同步模擬全部 {outcomes.Count} 種 HQ/NQ 配料皆達標：" +
-                    $"{collectableName}檔，最低收藏價值 {minimum}（門檻 {collectableTarget}）；{details}";
+                    $"{collectableName}檔，最低收藏價值 {minimum}（門檻 {collectableTarget}）；{reliability}；{details}";
             }
 
             if (!craft.CraftHQ)
-                return $"SAFE|Artisan／Craftimizer 同步模擬已驗證固定品質配方可完成；{details}";
+                return $"SAFE|Artisan／Craftimizer 同步模擬固定品質配方可完成；{reliability}；{details}";
 
-            return $"SAFE|Artisan／Craftimizer 同步模擬全部 {outcomes.Count} 種 HQ/NQ 配料皆達到 100%；{details}";
+            return $"SAFE|Artisan／Craftimizer 同步模擬全部 {outcomes.Count} 種 HQ/NQ 配料皆估計達到 100%；{reliability}；{details}";
         }
 
         private static bool MeetsPreflightTarget(CraftState craft, StepState step,

@@ -97,8 +97,14 @@ public static class CraftingProcessor
         _pendingRecommendationCancellation?.Dispose();
         _pendingRecommendationCancellation = null;
 
-        if (pending.IsCanceled || craft == null || step == null || _activeSolver == null)
+        if (craft == null || step == null || _activeSolver == null)
             return;
+
+        if (pending.IsCanceled && _activeSolver is CraftimizerSolver cancelledSolver)
+        {
+            PublishRecommendation(recipe, craft, step, cancelledSolver.RecoverTimedOutRecommendation(craft, step));
+            return;
+        }
 
         Solver.Recommendation recommendation;
         try
@@ -108,6 +114,11 @@ public static class CraftingProcessor
         catch (Exception e)
         {
             Svc.Log.Error(e, "Asynchronous crafting solver failed");
+            if (_activeSolver is CraftimizerSolver failedSolver)
+            {
+                PublishRecommendation(recipe, craft, step, failedSolver.RecoverTimedOutRecommendation(craft, step));
+                return;
+            }
             SolverFailed?.Invoke(recipe, $"Asynchronous solver failed: {e.Message}");
             return;
         }
@@ -162,6 +173,8 @@ public static class CraftingProcessor
 
     private static void OnCraftStarted(Lumina.Excel.Sheets.Recipe recipe, CraftState craft, StepState initialStep, bool trial)
     {
+        CancelPendingRecommendation();
+        _nextRec = new();
         Svc.Log.Debug($"[CProc] OnCraftStarted #{recipe.RowId} '{recipe.ItemResult.Value.Name.ToDalamudString()}' (trial={trial}) (cosmic={craft.IsCosmic}) (IQ={craft.InitialQuality}) (PQ={craft.CraftProgress}/{craft.CraftQualityMax})");
         if (_expectedRecipe != null && _expectedRecipe.Value != recipe.RowId)
         {
@@ -223,9 +236,14 @@ public static class CraftingProcessor
 
     private static void OnCraftFinished(Lumina.Excel.Sheets.Recipe recipe, CraftState craft, StepState finalStep, bool cancelled)
     {
+        // Clear a worker even when the solver was reset by an earlier error.
+        CancelPendingRecommendation();
         Svc.Log.Debug($"[CProc] OnCraftFinished #{recipe.RowId} (cancel={cancelled}, solver={ActiveSolver.Name}): {finalStep}");
         if (_activeSolver == null)
+        {
+            _nextRec = new();
             return;
+        }
         if (!cancelled && _nextRec.Action != Skills.None && _nextRec.Action != finalStep.PrevComboAction)
             Svc.Log.Warning($"Previous action was different from recommendation: recommended {_nextRec.Action}, used {finalStep.PrevComboAction}");
 
@@ -248,11 +266,24 @@ public static class CraftingProcessor
             _pendingCraft = craft with { };
             _pendingStep = step with { };
             _pendingRecommendationStarted = Stopwatch.GetTimestamp();
-            _pendingRecommendation = asyncSolver.SolveAsync(
-                _pendingCraft,
-                _pendingStep,
-                _pendingRecommendationCancellation.Token);
-            Svc.Log.Debug($"[CProc] Waiting for asynchronous recommendation at step {step.Index}");
+            try
+            {
+                _pendingRecommendation = asyncSolver.SolveAsync(
+                    _pendingCraft, _pendingStep, _pendingRecommendationCancellation.Token);
+            }
+            catch (Exception e)
+            {
+                CancelPendingRecommendation();
+                Svc.Log.Error(e, "Unable to start asynchronous crafting solver");
+                SolverFailed?.Invoke(recipe, $"Unable to start solver: {e.Message}");
+                return;
+            }
+            // Cosmic and cache hits are synchronous and cheap. Publish now;
+            // don't leave the UI in 'calculating' for an extra framework tick.
+            if (_pendingRecommendation.IsCompleted)
+                Update();
+            else
+                Svc.Log.Debug($"[CProc] Waiting for asynchronous recommendation at step {step.Index}");
             return;
         }
 
@@ -276,16 +307,22 @@ public static class CraftingProcessor
     private static void CancelPendingRecommendation()
     {
         // Observe late faults after detaching a cancelled worker. Its result is
-        // never published into a different recipe/step.
-        if (_pendingRecommendation is { } abandoned)
-            _ = abandoned.ContinueWith(t => { _ = t.Exception; }, CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-        _pendingRecommendationCancellation?.Cancel();
-        _pendingRecommendationCancellation?.Dispose();
+        // never published into a different recipe/step. Keep the token source
+        // alive until that worker has stopped using/registering its token.
+        var abandoned = _pendingRecommendation;
+        var cancellation = _pendingRecommendationCancellation;
         _pendingRecommendationCancellation = null;
         _pendingRecommendation = null;
         _pendingCraft = null;
         _pendingStep = null;
+        cancellation?.Cancel();
+        if (abandoned != null)
+            _ = abandoned.ContinueWith(t =>
+            {
+                _ = t.Exception;
+                cancellation?.Dispose();
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        else
+            cancellation?.Dispose();
     }
 }
