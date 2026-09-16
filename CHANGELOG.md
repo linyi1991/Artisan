@@ -1,5 +1,7 @@
 # Changelog
 
+- [Artisan 4.0.3.136：宇宙有界 Craftimizer 動態求解，保留一般快取](docs/updates/2026-09-16-artisan-bounded-cosmic-quality.md)。
+
 - [Artisan 4.0.3.135：Craftimizer 有界方案擇優、成功快取與資源觀測](docs/updates/2026-09-16-artisan-quality-preserving-cache.md)。
 
 - [Artisan 4.0.3.134／Solver 2.11.0.3：有界搜尋、HQ 狀態快取與等待恢復](docs/updates/2026-09-16-artisan-solver-stability.md)。

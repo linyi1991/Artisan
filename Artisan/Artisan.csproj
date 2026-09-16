@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Authors></Authors>
     <Company></Company>
-    <Version>4.0.3.135-api13-tw-quality-preserving-cache</Version>
+    <Version>4.0.3.136-api13-tw-bounded-dynamic-quality</Version>
     <Description>A 'simple' crafting plugin.</Description>
     <Copyright>Taurenkey</Copyright>
   </PropertyGroup>

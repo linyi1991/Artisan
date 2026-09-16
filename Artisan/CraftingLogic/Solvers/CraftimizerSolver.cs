@@ -150,17 +150,16 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
                 Comment = $"本次製作已停用 Craftimizer，改用 Artisan 備援；原因：{LocalizeFallbackReason(_fallbackOnlyReason)}",
             });
 
-        // Cosmic conditions and timed duty actions need live state, not a fixed
-        // rotation. Use Artisan's established dynamic policy without allocating
-        // a fresh MCTS forest on every action (especially costly on MacBook Air).
+        // Cosmic needs live conditions, not a fixed plan. Keep actual Craftimizer
+        // solving after fixing the core's unbounded time-mode iteration bug;
+        // the same single-worker/time/iteration limits apply as other experts.
         if (craft.IsCosmic)
         {
             if (!_reportedCosmicPolicy)
             {
                 _reportedCosmicPolicy = true;
-                Svc.Log.Information($"[Craftimizer Resource Policy] Cosmic recipe {craft.RecipeId}: Artisan dynamic solver; no live MCTS workers");
+                Svc.Log.Information($"[Craftimizer Resource Policy] Cosmic recipe {craft.RecipeId}: bounded Craftimizer dynamic search; one worker, 750ms, 100000 iterations; Artisan fallback and Material Miracle preserved");
             }
-            return Task.FromResult(artisanRecommendation with { Comment = "宇宙製作：Artisan 低資源動態求解" });
         }
 
         if (craft.MissionHasMaterialMiracle && P.Config.UseMaterialMiracle &&
@@ -325,6 +324,10 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             if (solution == null || solution.Value.Actions.Count == 0)
                 return FallbackForCraft(step, artisanRecommendation,
                     timeout.IsCancellationRequested ? "timed out" : "returned no solution");
+            // A prefix with no completed rollout is not a validated prediction
+            // of completion. Do not spend the live craft's materials following it.
+            if (solution.Value.State.Progress < craft.CraftProgress)
+                return FallbackForCraft(step, artisanRecommendation, "returned no complete continuation");
             var action = solution.Value.Actions[0];
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -334,7 +337,9 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             if (Simulator.CannotUseAction(craft, step, mapped, out var reason))
                 return FallbackForCraft(step, artisanRecommendation, $"recommended unusable action {action}: {reason}");
 
-            Svc.Log.Debug($"[Craftimizer Solver] Step {step.Index}: {action} mapped to {mapped} in {stopwatch.ElapsedMilliseconds} ms");
+            Svc.Log.Information($"[Craftimizer Decision] recipe={craft.RecipeId}, step={step.Index}, action={mapped}, " +
+                $"elapsedMs={stopwatch.ElapsedMilliseconds}, iterations={solver.SearchIterations}, " +
+                $"predictedQuality={solution.Value.State.Quality}, predictedProgress={solution.Value.State.Progress}");
             return new(mapped, $"Craftimizer 2.11；Next Action 計算耗時 {stopwatch.ElapsedMilliseconds} 毫秒");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -374,6 +379,8 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             return "上一個搜尋尚未結束";
         if (reason == "returned no solution")
             return "找不到可行解";
+        if (reason == "returned no complete continuation")
+            return "預測未能完成配方";
         if (reason.StartsWith("could not map action ", StringComparison.Ordinal))
             return "無法對應建議技能";
         if (reason.StartsWith("recommended unusable action ", StringComparison.Ordinal))
