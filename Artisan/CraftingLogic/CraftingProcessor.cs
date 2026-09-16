@@ -7,6 +7,7 @@ using ECommons.DalamudServices;
 using ECommons.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,6 +39,7 @@ public static class CraftingProcessor
     private static Solver.Recommendation _nextRec;
     private static CancellationTokenSource? _pendingRecommendationCancellation;
     private static Task<Solver.Recommendation>? _pendingRecommendation;
+    private static long _pendingRecommendationStarted;
     private static Lumina.Excel.Sheets.Recipe _pendingRecipe;
     private static CraftState? _pendingCraft;
     private static StepState? _pendingStep;
@@ -68,8 +70,23 @@ public static class CraftingProcessor
     public static void Update()
     {
         var pending = _pendingRecommendation;
-        if (pending == null || !pending.IsCompleted)
+        if (pending == null)
             return;
+        if (!pending.IsCompleted)
+        {
+            // Cancellation is cooperative; the UI must not wait indefinitely
+            // for an MCTS worker to acknowledge it. Recovery stays on framework.
+            if (_activeSolver is CraftimizerSolver solver && _pendingCraft is { } waitingCraft &&
+                _pendingStep is { } waitingStep &&
+                Stopwatch.GetElapsedTime(_pendingRecommendationStarted).TotalSeconds >= 3)
+            {
+                var waitingRecipe = _pendingRecipe;
+                CancelPendingRecommendation();
+                PublishRecommendation(waitingRecipe, waitingCraft, waitingStep,
+                    solver.RecoverTimedOutRecommendation(waitingCraft, waitingStep));
+            }
+            return;
+        }
 
         var recipe = _pendingRecipe;
         var craft = _pendingCraft;
@@ -230,6 +247,7 @@ public static class CraftingProcessor
             _pendingRecipe = recipe;
             _pendingCraft = craft with { };
             _pendingStep = step with { };
+            _pendingRecommendationStarted = Stopwatch.GetTimestamp();
             _pendingRecommendation = asyncSolver.SolveAsync(
                 _pendingCraft,
                 _pendingStep,
@@ -257,6 +275,12 @@ public static class CraftingProcessor
 
     private static void CancelPendingRecommendation()
     {
+        // Observe late faults after detaching a cancelled worker. Its result is
+        // never published into a different recipe/step.
+        if (_pendingRecommendation is { } abandoned)
+            _ = abandoned.ContinueWith(t => { _ = t.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         _pendingRecommendationCancellation?.Cancel();
         _pendingRecommendationCancellation?.Dispose();
         _pendingRecommendationCancellation = null;

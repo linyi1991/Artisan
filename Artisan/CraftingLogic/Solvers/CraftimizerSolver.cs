@@ -42,11 +42,13 @@ public sealed class CraftimizerSolverDefinition : ISolverDefinition
 public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
 {
     private const int MaxCachedPlans = 32;
-    private static readonly TimeSpan RecommendationTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan RecommendationTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan PreviewTimeout = TimeSpan.FromSeconds(5);
     private static readonly ConcurrentDictionary<PlanKey, Skills[]> ValidatedPlans = new();
     private static readonly ConcurrentQueue<PlanKey> ValidatedPlanOrder = new();
+    private static readonly SemaphoreSlim LiveSearchGate = new(1, 1);
     private readonly ArtisanSolver _fallback;
+    private bool _reportedCosmicPolicy;
     private readonly CraftState _initialCraft;
     private int _lastObservedStepIndex;
     private Skills _lastObservedAction = Skills.None;
@@ -147,6 +149,19 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
                 Comment = $"本次製作已停用 Craftimizer，改用 Artisan 備援；原因：{LocalizeFallbackReason(_fallbackOnlyReason)}",
             });
 
+        // Cosmic conditions and timed duty actions need live state, not a fixed
+        // rotation. Use Artisan's established dynamic policy without allocating
+        // a fresh MCTS forest on every action (especially costly on MacBook Air).
+        if (craft.IsCosmic)
+        {
+            if (!_reportedCosmicPolicy)
+            {
+                _reportedCosmicPolicy = true;
+                Svc.Log.Information($"[Craftimizer Resource Policy] Cosmic recipe {craft.RecipeId}: Artisan dynamic solver; no live MCTS workers");
+            }
+            return Task.FromResult(artisanRecommendation with { Comment = "宇宙製作：Artisan 低資源動態求解" });
+        }
+
         if (craft.MissionHasMaterialMiracle && P.Config.UseMaterialMiracle &&
             artisanRecommendation.Action == Skills.MaterialMiracle)
         {
@@ -204,9 +219,19 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             $"progress={step.Progress}/{craft.CraftProgress}, quality={step.Quality}/{craft.CraftQualityMax}, " +
             $"durability={step.Durability}, cp={step.RemainingCP}, condition={step.Condition}, " +
             $"materialMiracle={materialMiracleSeconds:0.0}s, maxSteps={inputState.ActionCount + 48}");
-        return Task.Run(
-            () => CalculateRecommendation(craft, step, inputState, artisanRecommendation, cancellationToken),
-            cancellationToken);
+        // A cancelled search may still be unwinding. Never queue or overlap a
+        // second forest; hold this gate until the worker has actually finished.
+        if (!LiveSearchGate.Wait(0))
+            return Task.FromResult(FallbackForCraft(step, artisanRecommendation, "previous search still running"));
+        return Task.Run(async () =>
+        {
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return await CalculateRecommendation(craft, step, inputState, artisanRecommendation, cancellationToken).ConfigureAwait(false);
+            }
+            finally { LiveSearchGate.Release(); }
+        });
     }
 
     /// <summary>
@@ -316,6 +341,14 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
         }
     }
 
+    public Recommendation RecoverTimedOutRecommendation(CraftState craft, StepState step)
+    {
+        var combo = GetComboState(step);
+        var fallbackStep = step.PrevComboAction == Skills.StandardTouch && combo != ActionProc.AdvancedTouch
+            ? step with { PrevComboAction = Skills.None } : step;
+        return FallbackForCraft(step, _fallback.Solve(craft, fallbackStep), "timed out");
+    }
+
     private Recommendation FallbackForCraft(StepState step, Recommendation artisanRecommendation, string reason)
     {
         _fallbackOnlyReason ??= reason;
@@ -396,16 +429,16 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             .Where(action => !CraftimizerSolverConfig.RiskyActions.Contains(action))
             .ToArray();
 
-        var threads = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
-        var forks = Math.Clamp(Environment.ProcessorCount, 4, 8);
+        const int threads = 1;
+        const int forks = 2;
         var config = CraftimizerSolverConfig.SynthHelperDefault with
         {
             // Craftimizer 2.11 concentrates a bounded wall-clock budget on
             // the best next action instead of producing a stale full macro.
             Algorithm = CraftimizerSolverAlgorithm.NextActionForked,
-            MaxTimeMs = 1800,
-            Iterations = 1_000_000,
-            MaxIterations = 1_000_000,
+            MaxTimeMs = 750,
+            Iterations = 100_000,
+            MaxIterations = 100_000,
             MaxThreadCount = threads,
             ForkCount = forks,
             FurcatedActionCount = Math.Max(2, forks / 2),
