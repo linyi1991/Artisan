@@ -13,6 +13,7 @@ using ECommons.ImGuiMethods;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using Dalamud.Bindings.ImGui;
 using Lumina.Excel.Sheets;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -30,8 +31,8 @@ public class RecipeConfig
     [NonSerialized]
     public int TempSolverFlavour = -1;
 
-    public string CurrentSolverType => TempSolverType.Length > 0 ? TempSolverType : SolverType;
-    public int CurrentSolverFlavour => TempSolverFlavour >= 0 ? TempSolverFlavour : SolverFlavour;
+    [JsonIgnore] public string CurrentSolverType => TempSolverType.Length > 0 ? TempSolverType : SolverType;
+    [JsonIgnore] public int CurrentSolverFlavour => TempSolverFlavour >= 0 ? TempSolverFlavour : SolverFlavour;
 
     public string SolverType = ""; // TODO: ideally it should be a Type?, but that causes problems for serialization
     public int SolverFlavour;
@@ -43,24 +44,24 @@ public class RecipeConfig
     public bool requiredPotionHQ = true;
 
 
-    public bool FoodEnabled => RequiredFood != Disabled;
-    public bool PotionEnabled => RequiredPotion != Disabled;
-    public bool ManualEnabled => RequiredManual != Disabled;
-    public bool SquadronManualEnabled => RequiredSquadronManual != Disabled;
+    [JsonIgnore] public bool FoodEnabled => RequiredFood != Disabled;
+    [JsonIgnore] public bool PotionEnabled => RequiredPotion != Disabled;
+    [JsonIgnore] public bool ManualEnabled => RequiredManual != Disabled;
+    [JsonIgnore] public bool SquadronManualEnabled => RequiredSquadronManual != Disabled;
 
 
-    public uint RequiredFood => requiredFood == Default ? P.Config.DefaultConsumables.requiredFood : requiredFood;
-    public uint RequiredPotion => requiredPotion == Default ? P.Config.DefaultConsumables.requiredPotion : requiredPotion;
-    public uint RequiredManual => requiredManual == Default ? P.Config.DefaultConsumables.requiredManual : requiredManual;
-    public uint RequiredSquadronManual => requiredSquadronManual == Default ? P.Config.DefaultConsumables.requiredSquadronManual : requiredSquadronManual;
-    public bool RequiredFoodHQ => requiredFood == Default ? P.Config.DefaultConsumables.requiredFoodHQ : requiredFoodHQ;
-    public bool RequiredPotionHQ => requiredPotion == Default ? P.Config.DefaultConsumables.requiredPotionHQ : requiredPotionHQ;
+    [JsonIgnore] public uint RequiredFood => requiredFood == Default ? P.Config.DefaultConsumables.requiredFood : requiredFood;
+    [JsonIgnore] public uint RequiredPotion => requiredPotion == Default ? P.Config.DefaultConsumables.requiredPotion : requiredPotion;
+    [JsonIgnore] public uint RequiredManual => requiredManual == Default ? P.Config.DefaultConsumables.requiredManual : requiredManual;
+    [JsonIgnore] public uint RequiredSquadronManual => requiredSquadronManual == Default ? P.Config.DefaultConsumables.requiredSquadronManual : requiredSquadronManual;
+    [JsonIgnore] public bool RequiredFoodHQ => requiredFood == Default ? P.Config.DefaultConsumables.requiredFoodHQ : requiredFoodHQ;
+    [JsonIgnore] public bool RequiredPotionHQ => requiredPotion == Default ? P.Config.DefaultConsumables.requiredPotionHQ : requiredPotionHQ;
 
 
-    public string FoodName => requiredFood == Default ? $"{P.Config.DefaultConsumables.FoodName} (預設)" : RequiredFood == Disabled ? "停用" : $"{(RequiredFoodHQ ? " " : "")}{ConsumableChecker.Food.FirstOrDefault(x => x.Id == RequiredFood).Name}";
-    public string PotionName => requiredPotion == Default ? $"{P.Config.DefaultConsumables.PotionName} (預設)" : RequiredPotion == Disabled ? "停用" : $"{(RequiredPotionHQ ? " " : "")}{ConsumableChecker.Pots.FirstOrDefault(x => x.Id == RequiredPotion).Name}";
-    public string ManualName => requiredManual == Default ? $"{P.Config.DefaultConsumables.ManualName} (預設)" : RequiredManual == Disabled ? "停用" : $"{ConsumableChecker.Manuals.FirstOrDefault(x => x.Id == RequiredManual).Name}";
-    public string SquadronManualName => requiredSquadronManual == Default ? $"{P.Config.DefaultConsumables.SquadronManualName} (預設)" : RequiredSquadronManual == Disabled ? "停用" : $"{ConsumableChecker.SquadronManuals.FirstOrDefault(x => x.Id == RequiredSquadronManual).Name}";
+    [JsonIgnore] public string FoodName => requiredFood == Default ? $"{P.Config.DefaultConsumables.FoodName} (預設)" : RequiredFood == Disabled ? "停用" : $"{(RequiredFoodHQ ? " " : "")}{ConsumableChecker.Food.FirstOrDefault(x => x.Id == RequiredFood).Name}";
+    [JsonIgnore] public string PotionName => requiredPotion == Default ? $"{P.Config.DefaultConsumables.PotionName} (預設)" : RequiredPotion == Disabled ? "停用" : $"{(RequiredPotionHQ ? " " : "")}{ConsumableChecker.Pots.FirstOrDefault(x => x.Id == RequiredPotion).Name}";
+    [JsonIgnore] public string ManualName => requiredManual == Default ? $"{P.Config.DefaultConsumables.ManualName} (預設)" : RequiredManual == Disabled ? "停用" : $"{ConsumableChecker.Manuals.FirstOrDefault(x => x.Id == RequiredManual).Name}";
+    [JsonIgnore] public string SquadronManualName => requiredSquadronManual == Default ? $"{P.Config.DefaultConsumables.SquadronManualName} (預設)" : RequiredSquadronManual == Disabled ? "停用" : $"{ConsumableChecker.SquadronManuals.FirstOrDefault(x => x.Id == RequiredSquadronManual).Name}";
 
     public static string LocalizeSolverName(string name) => name switch
     {

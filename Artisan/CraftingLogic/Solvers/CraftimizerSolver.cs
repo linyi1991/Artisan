@@ -19,6 +19,57 @@ using Skills = Artisan.RawInformation.Character.Skills;
 
 namespace Artisan.CraftingLogic.Solvers;
 
+public sealed class CraftimizerResourceSettings
+{
+    private const long GiB = 1024L * 1024L * 1024L;
+
+    public bool AutoThreads = true;
+    public int MaxThreads = 2;
+    public int MaxTimeMs = 750;
+    public int MaxIterations = 100_000;
+
+    public void Clamp()
+    {
+        MaxThreads = Math.Clamp(MaxThreads, 1, Math.Max(1, Math.Min(4, Environment.ProcessorCount)));
+        MaxTimeMs = Math.Clamp(MaxTimeMs, 250, 1500);
+        MaxIterations = Math.Clamp(MaxIterations, 25_000, 200_000);
+    }
+
+    public double DetectedMemoryGiB()
+    {
+        var bytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        return bytes > 0 ? (double)bytes / GiB : 0;
+    }
+
+    public int ResolveThreadCount()
+    {
+        Clamp();
+        if (!AutoThreads)
+            return MaxThreads;
+
+        var memory = GC.GetGCMemoryInfo();
+        if (memory.HighMemoryLoadThresholdBytes > 0 &&
+            memory.MemoryLoadBytes >= memory.HighMemoryLoadThresholdBytes * 4 / 5)
+            return 1;
+
+        var cores = Math.Max(1, Environment.ProcessorCount);
+        var cpuLimit = cores switch
+        {
+            <= 6 => 1,
+            <= 12 => 2,
+            <= 16 => 3,
+            _ => 4,
+        };
+        var memoryLimit = memory.TotalAvailableMemoryBytes switch
+        {
+            < 12L * GiB => 1,
+            < 24L * GiB => 2,
+            _ => 3,
+        };
+        return Math.Clamp(Math.Min(cpuLimit, memoryLimit), 1, 4);
+    }
+}
+
 public sealed class CraftimizerSolverDefinition : ISolverDefinition
 {
     public IEnumerable<ISolverDefinition.Desc> Flavours(CraftState craft)
@@ -158,7 +209,11 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             if (!_reportedCosmicPolicy)
             {
                 _reportedCosmicPolicy = true;
-                Svc.Log.Information($"[Craftimizer Resource Policy] Cosmic recipe {craft.RecipeId}: bounded Craftimizer dynamic search; one worker, 750ms, 100000 iterations; Artisan fallback and Material Miracle preserved");
+                var resourceSettings = P.Config.CraftimizerSolverConfig;
+                Svc.Log.Information($"[Craftimizer Resource Policy] Cosmic recipe {craft.RecipeId}: bounded Craftimizer dynamic search; " +
+                    $"threads={resourceSettings.ResolveThreadCount()} ({(resourceSettings.AutoThreads ? "safe-auto" : "manual")}), " +
+                    $"maxTime={resourceSettings.MaxTimeMs}ms, maxIterations={resourceSettings.MaxIterations}; " +
+                    "one search at a time, Artisan fallback and Material Miracle preserved");
             }
         }
 
@@ -418,16 +473,18 @@ public sealed class CraftimizerSolver : ArtisanSolver, IAsyncSolver
             .Where(action => !CraftimizerSolverConfig.RiskyActions.Contains(action))
             .ToArray();
 
-        const int threads = 1;
-        const int forks = 2;
+        var settings = P.Config.CraftimizerSolverConfig;
+        settings.Clamp();
+        var threads = settings.ResolveThreadCount();
+        var forks = Math.Clamp(threads * 2, 2, 8);
         var config = CraftimizerSolverConfig.SynthHelperDefault with
         {
             // Craftimizer 2.11 concentrates a bounded wall-clock budget on
             // the best next action instead of producing a stale full macro.
             Algorithm = CraftimizerSolverAlgorithm.NextActionForked,
-            MaxTimeMs = 750,
-            Iterations = 100_000,
-            MaxIterations = 100_000,
+            MaxTimeMs = settings.MaxTimeMs,
+            Iterations = settings.MaxIterations,
+            MaxIterations = settings.MaxIterations,
             MaxThreadCount = threads,
             ForkCount = forks,
             FurcatedActionCount = Math.Max(2, forks / 2),

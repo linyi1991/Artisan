@@ -723,6 +723,53 @@ namespace Artisan.UI
                     P.Config.Save();
             }
 
+            if (ImGui.CollapsingHeader("Craftimizer 求解器設定"))
+            {
+                var settings = P.Config.CraftimizerSolverConfig;
+                ImGui.Indent();
+                ImGui.TextWrapped("此設定只控制 Craftimizer 2.11 的即時求解資源；Artisan 仍負責執行技能、逾時處理與備援。所有搜尋共用單一工作閘門，不會同時啟動多輪求解。");
+
+                if (ImGui.Checkbox("依電腦規格安全自動調整執行緒", ref settings.AutoThreads))
+                    P.Config.Save();
+
+                var effectiveThreads = settings.ResolveThreadCount();
+                var memoryGiB = settings.DetectedMemoryGiB();
+                ImGui.TextWrapped($"偵測：{Environment.ProcessorCount} 核心、約 {memoryGiB:0.#} GiB 可用記憶體上限；目前求解使用 {effectiveThreads} 個執行緒。");
+                ImGuiComponents.HelpMarker("安全自動模式會依 CPU 與記憶體規格選擇 1–4 個執行緒；偵測到高記憶體壓力時，該次求解會自動降為 1。這不會增加同時執行的求解工作數。你的 10 核／32 GiB 電腦正常情況建議 2 個執行緒。");
+
+                if (!settings.AutoThreads)
+                {
+                    var maxManualThreads = Math.Max(1, Math.Min(4, Environment.ProcessorCount));
+                    if (ImGui.SliderInt("最大執行緒數###CraftimizerThreads", ref settings.MaxThreads, 1, maxManualThreads))
+                    {
+                        settings.Clamp();
+                        P.Config.Save();
+                    }
+                    ImGui.TextWrapped("手動模式最高限制為 4；提高執行緒可能縮短單步等待，但會增加遊戲與 Wine 的 CPU 負擔。");
+                }
+
+                if (ImGui.SliderInt("每步求解時間上限（毫秒）", ref settings.MaxTimeMs, 250, 1500))
+                {
+                    settings.Clamp();
+                    P.Config.Save();
+                }
+                ImGuiComponents.HelpMarker("宇宙／專家製作每個實際步驟的 Craftimizer 搜尋時間。逾時或無完整解法時會切回 Artisan 備援。");
+
+                if (ImGui.SliderInt("每步總迭代上限", ref settings.MaxIterations, 25_000, 200_000, "%d"))
+                {
+                    settings.Clamp();
+                    P.Config.Save();
+                }
+                ImGuiComponents.HelpMarker("這是所有執行緒共享的總上限，不會乘上執行緒數。數值越高可能改善困難配方的搜尋，但會增加 CPU 與配置量。");
+
+                if (ImGui.Button("恢復 Craftimizer 安全預設值"))
+                {
+                    P.Config.CraftimizerSolverConfig = new();
+                    P.Config.Save();
+                }
+                ImGui.Unindent();
+            }
+
             using (ImRaii.Disabled())
             {
                 if (ImGui.CollapsingHeader("腳本求解器設定 (目前停用)"))

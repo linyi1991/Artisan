@@ -164,6 +164,7 @@ namespace Artisan
         public bool UsingDiscordHooks;
         public string? DiscordWebhookUrl;
         public RaphaelSolverSettings RaphaelSolverConfig = new();
+        public CraftimizerResourceSettings CraftimizerSolverConfig = new();
         public ConcurrentDictionary<string, MacroSolverSettings.Macro> RaphaelSolverCacheV2 = [];
         public ConcurrentDictionary<string, MacroSolverSettings.Macro> RaphaelSolverCacheV3 = [];
 
@@ -204,6 +205,7 @@ namespace Artisan
             RaphaelSolverConfig.MaximumThreads = 1;
             RaphaelSolverConfig.GenerateOnExperts = false;
             RaphaelSolverConfig.TimeOutMins = 3;
+            CraftimizerSolverConfig = new();
             Save();
         }
 
@@ -225,7 +227,10 @@ namespace Artisan
                 if (config.RecipeWindowRetainerRestockMax == 99)
                 {
                     config.RecipeWindowRetainerRestockMax = 999;
-                    Svc.PluginInterface.SavePluginConfig(config);
+                    // P.Config is not assigned until Load returns. Saving here makes
+                    // computed RecipeConfig properties dereference an uninitialized
+                    // global configuration. Persist this migration with the next
+                    // normal settings save instead.
                 }
 
                 return config;

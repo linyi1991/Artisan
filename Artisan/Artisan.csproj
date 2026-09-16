@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Authors></Authors>
     <Company></Company>
-    <Version>4.0.3.136-api13-tw-bounded-dynamic-quality</Version>
+    <Version>4.0.3.139-api13-tw-craftimizer-resource-controls-config-load</Version>
     <Description>A 'simple' crafting plugin.</Description>
     <Copyright>Taurenkey</Copyright>
   </PropertyGroup>
