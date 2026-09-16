@@ -3,7 +3,7 @@
   <PropertyGroup>
     <Authors></Authors>
     <Company></Company>
-    <Version>4.0.3.139-api13-tw-craftimizer-resource-controls-config-load</Version>
+    <Version>4.0.3.140-api13-tw-craftimizer-core-controls</Version>
     <Description>A 'simple' crafting plugin.</Description>
     <Copyright>Taurenkey</Copyright>
   </PropertyGroup>

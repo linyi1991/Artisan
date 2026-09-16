@@ -729,38 +729,70 @@ namespace Artisan.UI
                 ImGui.Indent();
                 ImGui.TextWrapped("此設定只控制 Craftimizer 2.11 的即時求解資源；Artisan 仍負責執行技能、逾時處理與備援。所有搜尋共用單一工作閘門，不會同時啟動多輪求解。");
 
-                if (ImGui.Checkbox("依電腦規格安全自動調整執行緒", ref settings.AutoThreads))
-                    P.Config.Save();
-
-                var effectiveThreads = settings.ResolveThreadCount();
-                var memoryGiB = settings.DetectedMemoryGiB();
-                ImGui.TextWrapped($"偵測：{Environment.ProcessorCount} 核心、約 {memoryGiB:0.#} GiB 可用記憶體上限；目前求解使用 {effectiveThreads} 個執行緒。");
-                ImGuiComponents.HelpMarker("安全自動模式會依 CPU 與記憶體規格選擇 1–4 個執行緒；偵測到高記憶體壓力時，該次求解會自動降為 1。這不會增加同時執行的求解工作數。你的 10 核／32 GiB 電腦正常情況建議 2 個執行緒。");
-
-                if (!settings.AutoThreads)
+                if (ImGui.RadioButton("安全自動###CraftimizerAutoThreads", settings.AutoThreads))
                 {
-                    var maxManualThreads = Math.Max(1, Math.Min(4, Environment.ProcessorCount));
-                    if (ImGui.SliderInt("最大執行緒數###CraftimizerThreads", ref settings.MaxThreads, 1, maxManualThreads))
+                    settings.AutoThreads = true;
+                    P.Config.Save();
+                }
+                ImGui.SameLine();
+                if (ImGui.RadioButton("手動指定###CraftimizerManualThreads", !settings.AutoThreads))
+                {
+                    settings.AutoThreads = false;
+                    P.Config.Save();
+                }
+
+                using (ImRaii.Disabled(settings.AutoThreads))
+                {
+                    var maxManualThreads = Math.Max(1, Environment.ProcessorCount);
+                    if (ImGui.SliderInt("CPU 核心上限（0＝全部）###CraftimizerThreads", ref settings.MaxThreads, 0, maxManualThreads))
                     {
                         settings.Clamp();
                         P.Config.Save();
                     }
-                    ImGui.TextWrapped("手動模式最高限制為 4；提高執行緒可能縮短單步等待，但會增加遊戲與 Wine 的 CPU 負擔。");
                 }
+                var effectiveThreads = settings.ResolveThreadCount();
+                var memoryGiB = settings.DetectedMemoryGiB();
+                ImGui.TextWrapped(settings.AutoThreads
+                    ? $"目前生效：安全自動，最多使用 {effectiveThreads} 個 CPU 核心。偵測到 {Environment.ProcessorCount} 核心、約 {memoryGiB:0.#} GiB 可用記憶體上限。"
+                    : $"目前生效：手動限制，最多使用 {effectiveThreads} 個 CPU 核心。0 代表全部 {Environment.ProcessorCount} 核心。");
+                ImGuiComponents.HelpMarker("安全自動會依 CPU、可用記憶體與當下記憶體壓力選擇 1～4 核心；壓力高時會降為 1。手動模式的 0 會使用全部核心，但不代表一定更快，且可能讓遊戲或 Wine 明顯卡頓。");
+                if (!settings.AutoThreads && (settings.MaxThreads == 0 || settings.MaxThreads > 4))
+                    ImGui.TextColored(new Vector4(1f, 0.25f, 0.25f, 1f), "高核心數會明顯增加遊戲與 Wine 的 CPU／記憶體負擔；建議先從 2～4 開始測試。");
 
-                if (ImGui.SliderInt("每步求解時間上限（毫秒）", ref settings.MaxTimeMs, 250, 1500))
+                if (ImGui.SliderInt("每個製作技能最多求解時間（毫秒）", ref settings.MaxTimeMs, 250, 1500))
                 {
                     settings.Clamp();
                     P.Config.Save();
                 }
-                ImGuiComponents.HelpMarker("宇宙／專家製作每個實際步驟的 Craftimizer 搜尋時間。逾時或無完整解法時會切回 Artisan 備援。");
+                ImGuiComponents.HelpMarker("每次準備按下一個製作技能時，最多讓 Craftimizer 思考多久。較長可能找到更好的選擇，但也會增加等待時間；逾時時會自動切回 Artisan 備援。建議保留 750 毫秒。");
 
-                if (ImGui.SliderInt("每步總迭代上限", ref settings.MaxIterations, 25_000, 200_000, "%d"))
+                ImGui.Text("求解強度");
+                ImGui.SameLine();
+                if (ImGui.RadioButton("省資源###CraftimizerIterationsLow", settings.MaxIterations == 50_000))
                 {
-                    settings.Clamp();
+                    settings.MaxIterations = 50_000;
                     P.Config.Save();
                 }
-                ImGuiComponents.HelpMarker("這是所有執行緒共享的總上限，不會乘上執行緒數。數值越高可能改善困難配方的搜尋，但會增加 CPU 與配置量。");
+                ImGui.SameLine();
+                if (ImGui.RadioButton("平衡（建議）###CraftimizerIterationsBalanced", settings.MaxIterations == 100_000))
+                {
+                    settings.MaxIterations = 100_000;
+                    P.Config.Save();
+                }
+                ImGui.SameLine();
+                if (ImGui.RadioButton("加強搜尋###CraftimizerIterationsHigh", settings.MaxIterations == 200_000))
+                {
+                    settings.MaxIterations = 200_000;
+                    P.Config.Save();
+                }
+                ImGui.TextWrapped(settings.MaxIterations switch
+                {
+                    50_000 => "目前：省資源。降低 CPU 使用，困難配方可能較早改用備援。",
+                    100_000 => "目前：平衡。一般宇宙製作建議使用此設定。",
+                    200_000 => "目前：加強搜尋。允許嘗試更多解法，CPU／記憶體用量較高。",
+                    _ => $"目前：自訂舊設定（{settings.MaxIterations:N0} 次）；選擇上方任一模式即可套用清楚的預設值。",
+                });
+                ImGuiComponents.HelpMarker("求解強度是每個製作技能最多嘗試多少候選解法；所有 CPU 核心共用同一上限，不會再乘上核心數。通常選「平衡」即可，不需要自行判斷迭代數字。");
 
                 if (ImGui.Button("恢復 Craftimizer 安全預設值"))
                 {

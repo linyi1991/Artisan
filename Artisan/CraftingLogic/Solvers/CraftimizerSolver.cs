@@ -30,7 +30,7 @@ public sealed class CraftimizerResourceSettings
 
     public void Clamp()
     {
-        MaxThreads = Math.Clamp(MaxThreads, 1, Math.Max(1, Math.Min(4, Environment.ProcessorCount)));
+        MaxThreads = Math.Clamp(MaxThreads, 0, Math.Max(1, Environment.ProcessorCount));
         MaxTimeMs = Math.Clamp(MaxTimeMs, 250, 1500);
         MaxIterations = Math.Clamp(MaxIterations, 25_000, 200_000);
     }
@@ -45,7 +45,7 @@ public sealed class CraftimizerResourceSettings
     {
         Clamp();
         if (!AutoThreads)
-            return MaxThreads;
+            return MaxThreads == 0 ? Math.Max(1, Environment.ProcessorCount) : MaxThreads;
 
         var memory = GC.GetGCMemoryInfo();
         if (memory.HighMemoryLoadThresholdBytes > 0 &&
